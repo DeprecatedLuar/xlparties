@@ -1,0 +1,287 @@
+// Package store wraps the SQLite persistence layer: schema, and all query
+// methods used by the rest of the bot.
+package store
+
+import (
+	"database/sql"
+	_ "embed"
+	"fmt"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+//go:embed schema.sql
+var schemaSQL string
+
+// Store wraps the database connection and exposes all query methods.
+type Store struct {
+	db *sql.DB
+}
+
+// Party is a row from the parties table.
+type Party struct {
+	ChannelID int64
+	OwnerID   int64
+	CreatedAt int64
+}
+
+// Override is a row from the party_overrides table.
+type Override struct {
+	ChannelID int64
+	UserID    int64
+	Type      string // "allow" or "deny"
+}
+
+// Open opens (creating if absent) the SQLite database at path, applies the
+// schema idempotently, and enables WAL + foreign key enforcement.
+func Open(path string) (*Store, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+
+	if _, err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable WAL: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable foreign_keys: %w", err)
+	}
+	if _, err := db.Exec(schemaSQL); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+
+	return &Store{db: db}, nil
+}
+
+// Close closes the underlying database connection.
+func (s *Store) Close() error {
+	return s.db.Close()
+}
+
+func (s *Store) upsertUser(userID int64) error {
+	_, err := s.db.Exec(`INSERT INTO users (id) VALUES (?) ON CONFLICT (id) DO NOTHING`, userID)
+	if err != nil {
+		return fmt.Errorf("upsert user %d: %w", userID, err)
+	}
+	return nil
+}
+
+// --- relationships ---
+
+// UpsertFriend records that granterID allows granteeID to see and join
+// granterID's party by default. Replaces any existing block edge.
+func (s *Store) UpsertFriend(granterID, granteeID int64) error {
+	return s.upsertRelationship(granterID, granteeID, "friend")
+}
+
+// UpsertBlock records that granterID denies granteeID access. Replaces any
+// existing friend edge.
+func (s *Store) UpsertBlock(granterID, granteeID int64) error {
+	return s.upsertRelationship(granterID, granteeID, "block")
+}
+
+func (s *Store) upsertRelationship(granterID, granteeID int64, relationType string) error {
+	if err := s.upsertUser(granterID); err != nil {
+		return err
+	}
+	if err := s.upsertUser(granteeID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO relationships (granter_id, grantee_id, relation_type, created_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT (granter_id, grantee_id)
+		DO UPDATE SET relation_type = excluded.relation_type, created_at = excluded.created_at
+	`, granterID, granteeID, relationType, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("upsert relationship (%d,%d,%s): %w", granterID, granteeID, relationType, err)
+	}
+	return nil
+}
+
+// RemoveFriend deletes the (granterID, granteeID, 'friend') edge, if present.
+func (s *Store) RemoveFriend(granterID, granteeID int64) error {
+	return s.removeRelationship(granterID, granteeID, "friend")
+}
+
+// RemoveBlock deletes the (granterID, granteeID, 'block') edge, if present.
+func (s *Store) RemoveBlock(granterID, granteeID int64) error {
+	return s.removeRelationship(granterID, granteeID, "block")
+}
+
+func (s *Store) removeRelationship(granterID, granteeID int64, relationType string) error {
+	_, err := s.db.Exec(`
+		DELETE FROM relationships WHERE granter_id = ? AND grantee_id = ? AND relation_type = ?
+	`, granterID, granteeID, relationType)
+	if err != nil {
+		return fmt.Errorf("remove relationship (%d,%d,%s): %w", granterID, granteeID, relationType, err)
+	}
+	return nil
+}
+
+// FriendIDs returns the ids of every user ownerID has marked as a friend.
+func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
+	rows, err := s.db.Query(`
+		SELECT grantee_id FROM relationships WHERE granter_id = ? AND relation_type = 'friend'
+	`, ownerID)
+	if err != nil {
+		return nil, fmt.Errorf("query friend ids for %d: %w", ownerID, err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan friend id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// --- config ---
+
+// GetConfig returns the value stored under key, and whether it was present.
+func (s *Store) GetConfig(key string) (string, bool, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM config WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get config %q: %w", key, err)
+	}
+	return value, true, nil
+}
+
+// SetConfig upserts the value stored under key.
+func (s *Store) SetConfig(key, value string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO config (key, value) VALUES (?, ?)
+		ON CONFLICT (key) DO UPDATE SET value = excluded.value
+	`, key, value)
+	if err != nil {
+		return fmt.Errorf("set config %q: %w", key, err)
+	}
+	return nil
+}
+
+// --- parties ---
+
+// InsertParty records a newly created party channel.
+func (s *Store) InsertParty(channelID, ownerID int64) error {
+	_, err := s.db.Exec(`
+		INSERT INTO parties (channel_id, owner_id, created_at) VALUES (?, ?, ?)
+	`, channelID, ownerID, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("insert party %d: %w", channelID, err)
+	}
+	return nil
+}
+
+// DeleteParty removes the party row for channelID.
+func (s *Store) DeleteParty(channelID int64) error {
+	_, err := s.db.Exec(`DELETE FROM parties WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return fmt.Errorf("delete party %d: %w", channelID, err)
+	}
+	return nil
+}
+
+// PartyByOwner returns the active party owned by ownerID, if any.
+func (s *Store) PartyByOwner(ownerID int64) (*Party, bool, error) {
+	return s.queryOneParty(`SELECT channel_id, owner_id, created_at FROM parties WHERE owner_id = ?`, ownerID)
+}
+
+// PartyByChannel returns the party row for channelID, if any.
+func (s *Store) PartyByChannel(channelID int64) (*Party, bool, error) {
+	return s.queryOneParty(`SELECT channel_id, owner_id, created_at FROM parties WHERE channel_id = ?`, channelID)
+}
+
+func (s *Store) queryOneParty(query string, arg int64) (*Party, bool, error) {
+	var p Party
+	err := s.db.QueryRow(query, arg).Scan(&p.ChannelID, &p.OwnerID, &p.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("query party: %w", err)
+	}
+	return &p, true, nil
+}
+
+// AllParties returns every party row, for the startup sweep.
+func (s *Store) AllParties() ([]Party, error) {
+	rows, err := s.db.Query(`SELECT channel_id, owner_id, created_at FROM parties`)
+	if err != nil {
+		return nil, fmt.Errorf("query all parties: %w", err)
+	}
+	defer rows.Close()
+
+	var parties []Party
+	for rows.Next() {
+		var p Party
+		if err := rows.Scan(&p.ChannelID, &p.OwnerID, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan party: %w", err)
+		}
+		parties = append(parties, p)
+	}
+	return parties, rows.Err()
+}
+
+// UpdateOwner changes the owner of record for channelID, on handoff.
+func (s *Store) UpdateOwner(channelID, newOwnerID int64) error {
+	_, err := s.db.Exec(`UPDATE parties SET owner_id = ? WHERE channel_id = ?`, newOwnerID, channelID)
+	if err != nil {
+		return fmt.Errorf("update owner for party %d: %w", channelID, err)
+	}
+	return nil
+}
+
+// --- party_overrides ---
+
+// UpsertOverride records a manual /vc_allow or /vc_deny decision.
+func (s *Store) UpsertOverride(channelID, userID int64, overrideType string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO party_overrides (channel_id, user_id, type) VALUES (?, ?, ?)
+		ON CONFLICT (channel_id, user_id) DO UPDATE SET type = excluded.type
+	`, channelID, userID, overrideType)
+	if err != nil {
+		return fmt.Errorf("upsert override (%d,%d,%s): %w", channelID, userID, overrideType, err)
+	}
+	return nil
+}
+
+// DeleteOverridesForChannel removes all manual overrides for channelID, on
+// party cleanup.
+func (s *Store) DeleteOverridesForChannel(channelID int64) error {
+	_, err := s.db.Exec(`DELETE FROM party_overrides WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return fmt.Errorf("delete overrides for channel %d: %w", channelID, err)
+	}
+	return nil
+}
+
+// OverridesForChannel returns all manual overrides for channelID.
+func (s *Store) OverridesForChannel(channelID int64) ([]Override, error) {
+	rows, err := s.db.Query(`SELECT channel_id, user_id, type FROM party_overrides WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("query overrides for channel %d: %w", channelID, err)
+	}
+	defer rows.Close()
+
+	var overrides []Override
+	for rows.Next() {
+		var o Override
+		if err := rows.Scan(&o.ChannelID, &o.UserID, &o.Type); err != nil {
+			return nil, fmt.Errorf("scan override: %w", err)
+		}
+		overrides = append(overrides, o)
+	}
+	return overrides, rows.Err()
+}
