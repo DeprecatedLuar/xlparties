@@ -13,6 +13,7 @@ import (
 
 	"xlparties/internal/commands"
 	"xlparties/internal/config"
+	"xlparties/internal/party"
 	"xlparties/internal/store"
 )
 
@@ -45,6 +46,10 @@ func Run() error {
 	if _, err := commands.Register(session, guildID, st); err != nil {
 		return fmt.Errorf("register commands: %w", err)
 	}
+
+	partyManager := party.NewManager(session, st, guildID)
+	partyManager.Register()
+	partyManager.WarnIfWatchChannelUnset()
 
 	log.Printf("xlparties is running (guild=%s)", guildID)
 	waitForShutdownSignal()

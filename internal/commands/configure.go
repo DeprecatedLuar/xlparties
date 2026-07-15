@@ -12,9 +12,6 @@ import (
 const (
 	subcommandWatchChannel = "watch_channel"
 	subcommandCategory     = "category"
-
-	configKeyWatchChannel = "watch_channel_id"
-	configKeyCategory     = "party_category_id"
 )
 
 func handleConfigure(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
@@ -37,7 +34,7 @@ func handleConfigure(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 
 func handleConfigureWatchChannel(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	channel := sub.Options[0].ChannelValue(s)
-	if err := st.SetConfig(configKeyWatchChannel, channel.ID); err != nil {
+	if err := st.SetConfig(store.ConfigKeyWatchChannel, channel.ID); err != nil {
 		log.Printf("configure watch_channel: %v", err)
 		respondEphemeral(s, i, "failed to save watch channel")
 		return
@@ -47,7 +44,7 @@ func handleConfigureWatchChannel(s *discordgo.Session, i *discordgo.InteractionC
 
 func handleConfigureCategory(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	channel := sub.Options[0].ChannelValue(s)
-	if err := st.SetConfig(configKeyCategory, channel.ID); err != nil {
+	if err := st.SetConfig(store.ConfigKeyCategory, channel.ID); err != nil {
 		log.Printf("configure category: %v", err)
 		respondEphemeral(s, i, "failed to save category")
 		return

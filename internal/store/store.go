@@ -14,6 +14,13 @@ import (
 //go:embed schema.sql
 var schemaSQL string
 
+// Config keys set at runtime via /configure, shared between the writer
+// (commands package) and readers (party package).
+const (
+	ConfigKeyWatchChannel = "watch_channel_id"
+	ConfigKeyCategory     = "party_category_id"
+)
+
 // Store wraps the database connection and exposes all query methods.
 type Store struct {
 	db *sql.DB
