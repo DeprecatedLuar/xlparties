@@ -35,6 +35,16 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to unblock")},
 	},
 	{
+		Name:        "vc_allow",
+		Description: "Allow a user into your current party, overriding any default",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to allow")},
+	},
+	{
+		Name:        "vc_deny",
+		Description: "Deny a user from your current party, overriding any default",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to deny")},
+	},
+	{
 		Name:                     "configure",
 		Description:              "Configure bot settings for this server",
 		DefaultMemberPermissions: &manageGuildPermission,
@@ -87,6 +97,8 @@ var handlers = map[string]handlerFunc{
 	"friend_remove": handleFriendRemove,
 	"block":         handleBlock,
 	"unblock":       handleUnblock,
+	"vc_allow":      handleVCAllow,
+	"vc_deny":       handleVCDeny,
 	"configure":     handleConfigure,
 }
 

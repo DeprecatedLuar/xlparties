@@ -6,9 +6,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// partyChannelPermissions is the pair of permissions the whole overwrite
-// model turns on or off: seeing and joining the channel.
-const partyChannelPermissions = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect
+// PartyChannelPermissions is the pair of permissions the whole overwrite
+// model turns on or off: seeing and joining the channel. Exported because
+// the vc_allow/vc_deny commands write the same pair to a single overwrite.
+const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect
 
 // buildCreationOverwrites returns the full overwrite set for a new party
 // channel per spec.md Creation: @everyone denied, the owner allowed, and
@@ -19,7 +20,7 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 	overwrites = append(overwrites, &discordgo.PermissionOverwrite{
 		ID:   guildID, // @everyone role id equals the guild id
 		Type: discordgo.PermissionOverwriteTypeRole,
-		Deny: partyChannelPermissions,
+		Deny: PartyChannelPermissions,
 	})
 
 	overwrites = append(overwrites, memberAllowOverwrite(ownerID))
@@ -34,6 +35,6 @@ func memberAllowOverwrite(userID int64) *discordgo.PermissionOverwrite {
 	return &discordgo.PermissionOverwrite{
 		ID:    strconv.FormatInt(userID, 10),
 		Type:  discordgo.PermissionOverwriteTypeMember,
-		Allow: partyChannelPermissions,
+		Allow: PartyChannelPermissions,
 	}
 }

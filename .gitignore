@@ -40,9 +40,8 @@ Thumbs.db
 *.tmp
 *.temp
 
-# Runtime SQLite database
-xlparties.db
-xlparties.db-*
+# Runtime SQLite database + single-instance lock
+xlparties.db*
 
 # Logs
 logs

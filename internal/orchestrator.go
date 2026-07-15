@@ -27,6 +27,12 @@ func Run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	lock, err := acquireSingleInstanceLock(cfg.DBPath)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
 	st, err := store.Open(cfg.DBPath)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
