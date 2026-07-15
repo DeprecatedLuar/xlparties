@@ -4,24 +4,41 @@ package party
 import (
 	"log"
 	"strconv"
+	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
 	"xlparties/internal/store"
 )
 
-// Manager owns the party lifecycle: creation trigger today, handoff and
-// cleanup in later phases.
+// Manager owns the party lifecycle: creation, ownership handoff, and
+// empty-channel cleanup.
 type Manager struct {
 	session *discordgo.Session
 	store   *store.Store
 	guildID string
+
+	emptyCleanup        time.Duration
+	ownerAbsenceHandoff time.Duration
+
+	mu            sync.Mutex
+	handoffTimers map[int64]*time.Timer
+	cleanupTimers map[int64]*time.Timer
 }
 
 // NewManager constructs a Manager. Call Register to start listening for the
 // events that drive the lifecycle.
-func NewManager(session *discordgo.Session, st *store.Store, guildID string) *Manager {
-	return &Manager{session: session, store: st, guildID: guildID}
+func NewManager(session *discordgo.Session, st *store.Store, guildID string, emptyCleanup, ownerAbsenceHandoff time.Duration) *Manager {
+	return &Manager{
+		session:             session,
+		store:               st,
+		guildID:             guildID,
+		emptyCleanup:        emptyCleanup,
+		ownerAbsenceHandoff: ownerAbsenceHandoff,
+		handoffTimers:       make(map[int64]*time.Timer),
+		cleanupTimers:       make(map[int64]*time.Timer),
+	}
 }
 
 // Register attaches the voice-state-update handler that drives party
@@ -45,26 +62,99 @@ func (m *Manager) WarnIfWatchChannelUnset() {
 }
 
 func (m *Manager) onVoiceStateUpdate(_ *discordgo.Session, v *discordgo.VoiceStateUpdate) {
-	if v.ChannelID == "" {
-		return // departure, not a join
+	var beforeChannelID string
+	if v.BeforeUpdate != nil {
+		beforeChannelID = v.BeforeUpdate.ChannelID
+	}
+	if beforeChannelID == v.ChannelID {
+		return // mute/deaf/etc. update, no channel change
 	}
 
+	if beforeChannelID != "" {
+		m.onLeaveChannel(beforeChannelID, v.UserID)
+	}
+	if v.ChannelID != "" {
+		m.onJoinChannel(v.ChannelID, v.UserID)
+	}
+}
+
+// onJoinChannel handles both triggers a channel join can fire: spawning a
+// party if the channel is the configured watch channel, and cancelling any
+// pending cleanup/handoff timer if the channel is an existing party channel.
+func (m *Manager) onJoinChannel(channelID, userID string) {
 	watchChannelID, ok, err := m.store.GetConfig(store.ConfigKeyWatchChannel)
 	if err != nil {
 		log.Printf("load watch channel config: %v", err)
-		return
-	}
-	if !ok || v.ChannelID != watchChannelID {
-		return
+	} else if ok && channelID == watchChannelID {
+		ownerID, err := strconv.ParseInt(userID, 10, 64)
+		if err != nil {
+			log.Printf("parse joining user id %q: %v", userID, err)
+		} else if err := m.spawnParty(ownerID); err != nil {
+			log.Printf("spawn party for owner %d: %v", ownerID, err)
+		}
 	}
 
-	ownerID, err := strconv.ParseInt(v.UserID, 10, 64)
+	channelIDInt, err := strconv.ParseInt(channelID, 10, 64)
 	if err != nil {
-		log.Printf("parse joining user id %q: %v", v.UserID, err)
+		log.Printf("parse channel id %q: %v", channelID, err)
+		return
+	}
+	party, exists, err := m.store.PartyByChannel(channelIDInt)
+	if err != nil {
+		log.Printf("check party for channel %d: %v", channelIDInt, err)
+		return
+	}
+	if !exists {
 		return
 	}
 
-	if err := m.spawnParty(ownerID); err != nil {
-		log.Printf("spawn party for owner %d: %v", ownerID, err)
+	m.cancelCleanupTimer(channelIDInt)
+	if strconv.FormatInt(party.OwnerID, 10) == userID {
+		m.cancelHandoffTimer(channelIDInt)
 	}
+}
+
+// onLeaveChannel reacts to a member leaving a party channel: starts the
+// empty-cleanup grace timer if the channel is now empty, or the
+// owner-absence handoff timer if the owner left while others remain.
+func (m *Manager) onLeaveChannel(channelID, userID string) {
+	channelIDInt, err := strconv.ParseInt(channelID, 10, 64)
+	if err != nil {
+		log.Printf("parse channel id %q: %v", channelID, err)
+		return
+	}
+	party, exists, err := m.store.PartyByChannel(channelIDInt)
+	if err != nil {
+		log.Printf("check party for channel %d: %v", channelIDInt, err)
+		return
+	}
+	if !exists {
+		return
+	}
+
+	members := m.membersInChannel(channelID)
+	if len(members) == 0 {
+		m.startCleanupTimer(channelIDInt)
+		return
+	}
+	if strconv.FormatInt(party.OwnerID, 10) == userID {
+		m.startHandoffTimer(channelIDInt, party.OwnerID)
+	}
+}
+
+// membersInChannel returns the ids of members currently connected to
+// channelID, read from the library's voice-state cache.
+func (m *Manager) membersInChannel(channelID string) []string {
+	guild, err := m.session.State.Guild(m.guildID)
+	if err != nil {
+		log.Printf("load guild voice state: %v", err)
+		return nil
+	}
+	var members []string
+	for _, vs := range guild.VoiceStates {
+		if vs.ChannelID == channelID {
+			members = append(members, vs.UserID)
+		}
+	}
+	return members
 }

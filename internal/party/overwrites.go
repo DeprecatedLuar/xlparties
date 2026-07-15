@@ -4,6 +4,8 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
+
+	"xlparties/internal/store"
 )
 
 // PartyChannelPermissions is the pair of permissions the whole overwrite
@@ -23,18 +25,49 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 		Deny: PartyChannelPermissions,
 	})
 
-	overwrites = append(overwrites, memberAllowOverwrite(ownerID))
+	overwrites = append(overwrites, memberOverwrite(ownerID, true))
 	for _, friendID := range friendIDs {
-		overwrites = append(overwrites, memberAllowOverwrite(friendID))
+		overwrites = append(overwrites, memberOverwrite(friendID, true))
 	}
 
 	return overwrites
 }
 
-func memberAllowOverwrite(userID int64) *discordgo.PermissionOverwrite {
-	return &discordgo.PermissionOverwrite{
-		ID:    strconv.FormatInt(userID, 10),
-		Type:  discordgo.PermissionOverwriteTypeMember,
-		Allow: PartyChannelPermissions,
+// buildRewriteOverwrites returns the full overwrite set for a party channel
+// after an ownership handoff, per spec.md Ownership Rewrite: @everyone
+// denied, the new owner and their friends allowed, then each manual
+// party_overrides row applied last so it wins over the friend defaults.
+func buildRewriteOverwrites(guildID string, ownerID int64, friendIDs []int64, overrides []store.Override) []*discordgo.PermissionOverwrite {
+	allow := make(map[int64]bool, len(friendIDs)+1+len(overrides))
+	allow[ownerID] = true
+	for _, friendID := range friendIDs {
+		allow[friendID] = true
 	}
+	for _, o := range overrides {
+		allow[o.UserID] = o.Type == "allow"
+	}
+
+	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(allow)+1)
+	overwrites = append(overwrites, &discordgo.PermissionOverwrite{
+		ID:   guildID, // @everyone role id equals the guild id
+		Type: discordgo.PermissionOverwriteTypeRole,
+		Deny: PartyChannelPermissions,
+	})
+	for userID, allowed := range allow {
+		overwrites = append(overwrites, memberOverwrite(userID, allowed))
+	}
+	return overwrites
+}
+
+func memberOverwrite(userID int64, allow bool) *discordgo.PermissionOverwrite {
+	ow := &discordgo.PermissionOverwrite{
+		ID:   strconv.FormatInt(userID, 10),
+		Type: discordgo.PermissionOverwriteTypeMember,
+	}
+	if allow {
+		ow.Allow = PartyChannelPermissions
+	} else {
+		ow.Deny = PartyChannelPermissions
+	}
+	return ow
 }

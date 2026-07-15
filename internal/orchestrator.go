@@ -53,9 +53,13 @@ func Run() error {
 		return fmt.Errorf("register commands: %w", err)
 	}
 
-	partyManager := party.NewManager(session, st, guildID)
+	partyManager := party.NewManager(session, st, guildID,
+		time.Duration(cfg.EmptyCleanupSeconds)*time.Second,
+		time.Duration(cfg.OwnerAbsenceHandoffSeconds)*time.Second,
+	)
 	partyManager.Register()
 	partyManager.WarnIfWatchChannelUnset()
+	partyManager.StartupSweep()
 
 	log.Printf("xlparties is running (guild=%s)", guildID)
 	waitForShutdownSignal()
