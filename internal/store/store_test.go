@@ -34,6 +34,34 @@ func TestFriendUpsertAndLookup(t *testing.T) {
 	}
 }
 
+func TestIsFriend(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, friend, stranger = int64(1001), int64(2002), int64(3003)
+
+	if is, err := s.IsFriend(owner, friend); err != nil {
+		t.Fatalf("IsFriend: %v", err)
+	} else if is {
+		t.Fatalf("IsFriend(%d,%d) = true before any relationship exists", owner, friend)
+	}
+
+	if err := s.UpsertFriend(owner, friend); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+
+	if is, err := s.IsFriend(owner, friend); err != nil {
+		t.Fatalf("IsFriend: %v", err)
+	} else if !is {
+		t.Fatalf("IsFriend(%d,%d) = false after UpsertFriend", owner, friend)
+	}
+
+	if is, err := s.IsFriend(owner, stranger); err != nil {
+		t.Fatalf("IsFriend: %v", err)
+	} else if is {
+		t.Fatalf("IsFriend(%d,%d) = true, want false for unrelated user", owner, stranger)
+	}
+}
+
 func TestConfigUpsertAndLookup(t *testing.T) {
 	s := openTestStore(t)
 

@@ -130,6 +130,21 @@ func (s *Store) removeRelationship(granterID, granteeID int64, relationType stri
 	return nil
 }
 
+// IsFriend reports whether granterID already has a friend edge to granteeID.
+func (s *Store) IsFriend(granterID, granteeID int64) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM relationships
+			WHERE granter_id = ? AND grantee_id = ? AND relation_type = 'friend'
+		)
+	`, granterID, granteeID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check friend (%d,%d): %w", granterID, granteeID, err)
+	}
+	return exists, nil
+}
+
 // FriendIDs returns the ids of every user ownerID has marked as a friend.
 func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
 	rows, err := s.db.Query(`
