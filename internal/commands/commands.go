@@ -45,6 +45,10 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to deny")},
 	},
 	{
+		Name:        "help",
+		Description: "List available commands",
+	},
+	{
 		Name:                     "configure",
 		Description:              "Configure bot settings for this server",
 		DefaultMemberPermissions: &manageGuildPermission,
@@ -100,6 +104,7 @@ var handlers = map[string]handlerFunc{
 	"vc_allow":      handleVCAllow,
 	"vc_deny":       handleVCDeny,
 	"configure":     handleConfigure,
+	"help":          handleHelp,
 }
 
 // Register creates every command guild-scoped and wires interaction routing.

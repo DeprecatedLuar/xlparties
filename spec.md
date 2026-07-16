@@ -240,6 +240,7 @@ If `watch_channel_id` is unset at bot startup, log the condition and disable par
 | `/vc_deny @user` | party owner | current channel | deny overwrite + `party_overrides` row, overrides friend |
 | `/configure watch_channel #channel` | Manage Guild | guild | set the party-trigger channel |
 | `/configure category <category>` | Manage Guild | guild | set the category new party channels spawn under |
+| `/help` | any | ephemeral | list available commands |
 
 ## Configuration Values
 
