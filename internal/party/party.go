@@ -142,8 +142,10 @@ func (m *Manager) onLeaveChannel(channelID, userID string) {
 	}
 }
 
-// membersInChannel returns the ids of members currently connected to
-// channelID, read from the library's voice-state cache.
+// membersInChannel returns the ids of non-bot members currently connected to
+// channelID, read from the library's voice-state cache. Bots (e.g. music
+// bots) are excluded: they are not eligible for ownership handoff and must
+// not count as occupants when deciding whether a channel is empty.
 func (m *Manager) membersInChannel(channelID string) []string {
 	guild, err := m.session.State.Guild(m.guildID)
 	if err != nil {
@@ -152,9 +154,13 @@ func (m *Manager) membersInChannel(channelID string) []string {
 	}
 	var members []string
 	for _, vs := range guild.VoiceStates {
-		if vs.ChannelID == channelID {
-			members = append(members, vs.UserID)
+		if vs.ChannelID != channelID {
+			continue
 		}
+		if vs.Member != nil && vs.Member.User != nil && vs.Member.User.Bot {
+			continue
+		}
+		members = append(members, vs.UserID)
 	}
 	return members
 }
