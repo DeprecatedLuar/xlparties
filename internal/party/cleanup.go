@@ -109,12 +109,18 @@ func (m *Manager) StartupSweep() {
 	log.Printf("startup sweep complete: %d parties checked", len(parties))
 }
 
-// SweepOrphanChannels deletes voice channels sitting in the configured party
-// category that have no corresponding row in the parties table. This is the
-// complement to StartupSweep: StartupSweep walks known DB rows out to
-// Discord, this walks live Discord channels back in against the DB, which is
-// the only way to catch a channel whose creation crashed between the Discord
-// create call and the DB insert (see internal/party/create.go spawnParty).
+// SweepOrphanChannels reports (but does not delete) voice channels sitting
+// in the configured party category that have no corresponding row in the
+// parties table.
+//
+// DRY-RUN ONLY. It does not delete anything. The party category is not
+// guaranteed to hold only bot-created channels — on at least one deployment
+// it's the server's general voice category, shared with manually-created
+// permanent channels — so "untracked channel in this category" is not a
+// safe-to-delete signal on its own. This incorrectly deleted two real,
+// manually-created channels in production before being changed to dry-run;
+// do not re-enable deletion here without a reliable way to distinguish
+// bot-created channels (e.g. tagging on create) from pre-existing ones.
 func (m *Manager) SweepOrphanChannels() {
 	categoryID, ok, err := m.store.GetConfig(store.ConfigKeyCategory)
 	if err != nil {
@@ -142,7 +148,7 @@ func (m *Manager) SweepOrphanChannels() {
 		known[p.ChannelID] = struct{}{}
 	}
 
-	swept := 0
+	found := 0
 	for _, c := range channels {
 		if c.Type != discordgo.ChannelTypeGuildVoice || c.ParentID != categoryID {
 			continue
@@ -155,13 +161,9 @@ func (m *Manager) SweepOrphanChannels() {
 		if _, tracked := known[channelID]; tracked {
 			continue
 		}
-		if _, err := m.session.ChannelDelete(c.ID); err != nil {
-			log.Printf("self heal: delete orphan channel %d: %v", channelID, err)
-			continue
-		}
-		swept++
-		log.Printf("self heal: deleted orphan channel %d (no parties record)", channelID)
+		found++
+		log.Printf("self heal: untracked channel in party category: id=%d name=%q (not deleted, dry-run only, verify manually)", channelID, c.Name)
 	}
 
-	log.Printf("self heal: orphan channel sweep complete: %d channels removed", swept)
+	log.Printf("self heal: orphan channel sweep complete: %d untracked channels found (dry-run, none deleted)", found)
 }
