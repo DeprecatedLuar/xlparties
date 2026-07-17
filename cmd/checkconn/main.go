@@ -16,6 +16,11 @@ import (
 	"github.com/joho/godotenv"
 )
 
+const (
+	gatewayReadyTimeout   = 10 * time.Second
+	guildPayloadGraceTime = 2 * time.Second
+)
+
 const requiredPermissions = discordgo.PermissionManageChannels |
 	discordgo.PermissionManageRoles |
 	discordgo.PermissionVoiceMoveMembers |
@@ -60,7 +65,7 @@ func main() {
 	var r *discordgo.Ready
 	select {
 	case r = <-ready:
-	case <-time.After(10 * time.Second):
+	case <-time.After(gatewayReadyTimeout):
 		log.Fatal("timed out waiting for READY event from gateway")
 	}
 
@@ -72,7 +77,7 @@ func main() {
 	guildID := r.Guilds[0].ID
 
 	// give the gateway a moment to deliver the full GUILD_CREATE payload
-	time.Sleep(2 * time.Second)
+	time.Sleep(guildPayloadGraceTime)
 
 	checkPermissions(session, guildID)
 	checkLiveChannelOps(session, guildID)

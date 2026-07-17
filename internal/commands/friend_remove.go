@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/messages"
 	"xlparties/internal/store"
 )
 
@@ -16,8 +17,8 @@ func handleFriendRemove(s *discordgo.Session, i *discordgo.InteractionCreate, st
 	}
 	if err := st.RemoveFriend(caller, target); err != nil {
 		log.Printf("friend_remove: %v", err)
-		respondEphemeral(s, i, "failed to remove friend")
+		respondEphemeral(s, i, messages.FailedRemoveFriend)
 		return
 	}
-	respondEphemeral(s, i, fmt.Sprintf("removed <@%d> as a friend", target))
+	respondEphemeral(s, i, fmt.Sprintf(messages.FriendRemoved, target))
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/messages"
 	"xlparties/internal/store"
 )
 
@@ -16,8 +17,8 @@ func handleBlock(s *discordgo.Session, i *discordgo.InteractionCreate, st *store
 	}
 	if err := st.UpsertBlock(caller, target); err != nil {
 		log.Printf("block: %v", err)
-		respondEphemeral(s, i, "failed to block user")
+		respondEphemeral(s, i, messages.FailedBlockUser)
 		return
 	}
-	respondEphemeral(s, i, fmt.Sprintf("blocked <@%d>", target))
+	respondEphemeral(s, i, fmt.Sprintf(messages.UserBlocked, target))
 }

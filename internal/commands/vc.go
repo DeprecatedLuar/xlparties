@@ -7,6 +7,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/messages"
 	"xlparties/internal/party"
 	"xlparties/internal/store"
 )
@@ -33,18 +34,18 @@ func handleVCOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *
 	channelID, err := strconv.ParseInt(i.ChannelID, 10, 64)
 	if err != nil {
 		log.Printf("vc_%s: parse channel id: %v", overrideType, err)
-		respondEphemeral(s, i, "failed to resolve the current channel")
+		respondEphemeral(s, i, messages.FailedResolveChannel)
 		return
 	}
 
 	activeParty, found, err := st.PartyByChannel(channelID)
 	if err != nil {
 		log.Printf("vc_%s: lookup party: %v", overrideType, err)
-		respondEphemeral(s, i, "failed to look up this party")
+		respondEphemeral(s, i, messages.FailedLookupParty)
 		return
 	}
 	if !found || activeParty.OwnerID != caller {
-		respondEphemeral(s, i, "you must be the owner of the party channel you're in to use this command")
+		respondEphemeral(s, i, messages.MustBeOwner)
 		return
 	}
 
@@ -57,18 +58,18 @@ func handleVCOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *
 	targetID := strconv.FormatInt(target, 10)
 	if err := s.ChannelPermissionSet(i.ChannelID, targetID, discordgo.PermissionOverwriteTypeMember, allow, deny); err != nil {
 		log.Printf("vc_%s: set channel permission: %v", overrideType, err)
-		respondEphemeral(s, i, fmt.Sprintf("failed to %s user", overrideType))
+		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, overrideType))
 		return
 	}
 	if err := st.UpsertOverride(channelID, target, overrideType); err != nil {
 		log.Printf("vc_%s: upsert override: %v", overrideType, err)
-		respondEphemeral(s, i, fmt.Sprintf("failed to %s user", overrideType))
+		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, overrideType))
 		return
 	}
 
 	if overrideType == overrideTypeAllow {
-		respondPublic(s, i, fmt.Sprintf("<@%d> is now allowed in this party", target))
+		respondPublic(s, i, fmt.Sprintf(messages.UserAllowed, target))
 	} else {
-		respondEphemeral(s, i, fmt.Sprintf("<@%d> is now denied from this party", target))
+		respondEphemeral(s, i, fmt.Sprintf(messages.UserDenied, target))
 	}
 }

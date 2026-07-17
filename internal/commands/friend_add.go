@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/messages"
 	"xlparties/internal/store"
 )
 
@@ -18,20 +19,20 @@ func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 	alreadyFriend, err := st.IsFriend(caller, target)
 	if err != nil {
 		log.Printf("friend_add: %v", err)
-		respondEphemeral(s, i, "failed to add friend")
+		respondEphemeral(s, i, messages.FailedAddFriend)
 		return
 	}
 	if alreadyFriend {
-		respondEphemeral(s, i, fmt.Sprintf("<@%d> is already a friend", target))
+		respondEphemeral(s, i, fmt.Sprintf(messages.AlreadyFriend, target))
 		return
 	}
 
 	if err := st.UpsertFriend(caller, target); err != nil {
 		log.Printf("friend_add: %v", err)
-		respondEphemeral(s, i, "failed to add friend")
+		respondEphemeral(s, i, messages.FailedAddFriend)
 		return
 	}
-	respondEphemeral(s, i, fmt.Sprintf("added <@%d> as a friend", target))
+	respondEphemeral(s, i, fmt.Sprintf(messages.FriendAdded, target))
 	notifyFriendAdded(s, i.GuildID, caller, target)
 }
 
@@ -50,7 +51,7 @@ func notifyFriendAdded(s *discordgo.Session, guildID string, caller, target int6
 		guildName = guild.Name
 	}
 
-	msg := fmt.Sprintf("<@%d> added you as a friend in **%s**. In the server, run `/friend_add` and pick <@%d> as the user to add them back.", caller, guildName, caller)
+	msg := fmt.Sprintf(messages.FriendAddedNotif, caller, guildName, caller)
 	if _, err := s.ChannelMessageSend(channel.ID, msg); err != nil {
 		log.Printf("friend_add: could not DM %d: %v", target, err)
 	}

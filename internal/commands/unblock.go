@@ -6,6 +6,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/messages"
 	"xlparties/internal/store"
 )
 
@@ -16,8 +17,8 @@ func handleUnblock(s *discordgo.Session, i *discordgo.InteractionCreate, st *sto
 	}
 	if err := st.RemoveBlock(caller, target); err != nil {
 		log.Printf("unblock: %v", err)
-		respondEphemeral(s, i, "failed to unblock user")
+		respondEphemeral(s, i, messages.FailedUnblockUser)
 		return
 	}
-	respondEphemeral(s, i, fmt.Sprintf("unblocked <@%d>", target))
+	respondEphemeral(s, i, fmt.Sprintf(messages.UserUnblocked, target))
 }

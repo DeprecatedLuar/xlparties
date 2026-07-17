@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
+
+	"xlparties/internal/messages"
 )
 
 // callerID returns the snowflake of the user who invoked the interaction.
@@ -31,17 +33,17 @@ func callerAndTarget(s *discordgo.Session, i *discordgo.InteractionCreate) (call
 	caller, err := callerID(i)
 	if err != nil {
 		log.Printf("resolve caller id: %v", err)
-		respondEphemeral(s, i, "failed to resolve your user id")
+		respondEphemeral(s, i, messages.FailedResolveCaller)
 		return 0, 0, false
 	}
 	target, err = userOptionID(i)
 	if err != nil {
 		log.Printf("resolve target user id: %v", err)
-		respondEphemeral(s, i, "failed to resolve target user id")
+		respondEphemeral(s, i, messages.FailedResolveTarget)
 		return 0, 0, false
 	}
 	if target == caller {
-		respondEphemeral(s, i, "you cannot target yourself")
+		respondEphemeral(s, i, messages.CannotTargetSelf)
 		return 0, 0, false
 	}
 	return caller, target, true

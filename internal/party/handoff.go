@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+
+	"xlparties/internal/messages"
 )
 
 // startHandoffTimer arms the owner-absence handoff timer for channelID if
@@ -63,10 +65,9 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 		return // owner returned
 	}
 
-	newOwnerIDStr := members[rand.Intn(len(members))]
-	newOwnerID, err := strconv.ParseInt(newOwnerIDStr, 10, 64)
+	newOwnerID, err := m.pickHandoffSuccessor(members, absentOwnerID)
 	if err != nil {
-		log.Printf("handoff: parse new owner id %q: %v", newOwnerIDStr, err)
+		log.Printf("handoff: pick successor for channel %d: %v", channelID, err)
 		return
 	}
 
@@ -78,7 +79,7 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 		log.Printf("handoff: rewrite overwrites for channel %d: %v", channelID, err)
 		return
 	}
-	if _, err := m.session.ChannelMessageSend(channelIDStr, fmt.Sprintf("<@%d> is now the owner of this party.", newOwnerID)); err != nil {
+	if _, err := m.session.ChannelMessageSend(channelIDStr, fmt.Sprintf(messages.NewOwner, newOwnerID)); err != nil {
 		log.Printf("handoff: post notice in channel %d: %v", channelID, err)
 	}
 
@@ -110,4 +111,37 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 
 func containsUser(members []string, userID int64) bool {
 	return slices.Contains(members, strconv.FormatInt(userID, 10))
+}
+
+// pickHandoffSuccessor chooses the new owner from members present in the
+// channel. It prefers a random pick among members the absent owner had
+// marked as friends; if none of the present members are friends, it falls
+// back to a random pick among all present members.
+func (m *Manager) pickHandoffSuccessor(members []string, absentOwnerID int64) (int64, error) {
+	friendIDs, err := m.store.FriendIDs(absentOwnerID)
+	if err != nil {
+		return 0, fmt.Errorf("load friends for absent owner %d: %w", absentOwnerID, err)
+	}
+
+	var friendMembers []string
+	for _, member := range members {
+		memberID, err := strconv.ParseInt(member, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse member id %q: %w", member, err)
+		}
+		if slices.Contains(friendIDs, memberID) {
+			friendMembers = append(friendMembers, member)
+		}
+	}
+
+	pool := members
+	if len(friendMembers) > 0 {
+		pool = friendMembers
+	}
+
+	newOwnerID, err := strconv.ParseInt(pool[rand.Intn(len(pool))], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse new owner id %q: %w", pool[0], err)
+	}
+	return newOwnerID, nil
 }
