@@ -4,6 +4,10 @@ import (
 	"log"
 	"strconv"
 	"time"
+
+	"github.com/bwmarrin/discordgo"
+
+	"xlparties/internal/store"
 )
 
 // startCleanupTimer arms the empty-channel grace timer for channelID if one
@@ -103,4 +107,61 @@ func (m *Manager) StartupSweep() {
 	}
 
 	log.Printf("startup sweep complete: %d parties checked", len(parties))
+}
+
+// SweepOrphanChannels deletes voice channels sitting in the configured party
+// category that have no corresponding row in the parties table. This is the
+// complement to StartupSweep: StartupSweep walks known DB rows out to
+// Discord, this walks live Discord channels back in against the DB, which is
+// the only way to catch a channel whose creation crashed between the Discord
+// create call and the DB insert (see internal/party/create.go spawnParty).
+func (m *Manager) SweepOrphanChannels() {
+	categoryID, ok, err := m.store.GetConfig(store.ConfigKeyCategory)
+	if err != nil {
+		log.Printf("self heal: load party category config: %v", err)
+		return
+	}
+	if !ok {
+		log.Println("self heal: party_category not configured, skipping orphan channel sweep")
+		return
+	}
+
+	channels, err := m.session.GuildChannels(m.guildID)
+	if err != nil {
+		log.Printf("self heal: list guild channels: %v", err)
+		return
+	}
+
+	parties, err := m.store.AllParties()
+	if err != nil {
+		log.Printf("self heal: load parties: %v", err)
+		return
+	}
+	known := make(map[int64]struct{}, len(parties))
+	for _, p := range parties {
+		known[p.ChannelID] = struct{}{}
+	}
+
+	swept := 0
+	for _, c := range channels {
+		if c.Type != discordgo.ChannelTypeGuildVoice || c.ParentID != categoryID {
+			continue
+		}
+		channelID, err := strconv.ParseInt(c.ID, 10, 64)
+		if err != nil {
+			log.Printf("self heal: parse channel id %q: %v", c.ID, err)
+			continue
+		}
+		if _, tracked := known[channelID]; tracked {
+			continue
+		}
+		if _, err := m.session.ChannelDelete(c.ID); err != nil {
+			log.Printf("self heal: delete orphan channel %d: %v", channelID, err)
+			continue
+		}
+		swept++
+		log.Printf("self heal: deleted orphan channel %d (no parties record)", channelID)
+	}
+
+	log.Printf("self heal: orphan channel sweep complete: %d channels removed", swept)
 }

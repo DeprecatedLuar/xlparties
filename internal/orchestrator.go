@@ -14,6 +14,7 @@ import (
 	"xlparties/internal/commands"
 	"xlparties/internal/config"
 	"xlparties/internal/party"
+	"xlparties/internal/selfheal"
 	"xlparties/internal/store"
 )
 
@@ -60,6 +61,7 @@ func Run() error {
 	partyManager.Register()
 	partyManager.WarnIfWatchChannelUnset()
 	partyManager.StartupSweep()
+	selfheal.Run(partyManager)
 
 	log.Printf("xlparties is running (guild=%s)", guildID)
 	waitForShutdownSignal()

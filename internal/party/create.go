@@ -67,6 +67,9 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		return fmt.Errorf("parse created channel id %q: %w", channel.ID, err)
 	}
 	if err := m.store.InsertParty(channelID, ownerID); err != nil {
+		if _, delErr := m.session.ChannelDelete(channel.ID); delErr != nil {
+			log.Printf("rollback: delete channel %d after failed party insert: %v", channelID, delErr)
+		}
 		return fmt.Errorf("insert party row for channel %d: %w", channelID, err)
 	}
 
