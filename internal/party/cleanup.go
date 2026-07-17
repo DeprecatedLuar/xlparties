@@ -57,6 +57,10 @@ func (m *Manager) deleteParty(channelID int64) {
 		log.Printf("cleanup: delete channel %d: %v", channelID, err)
 		return
 	}
+	m.cancelFoFTimersForChannel(channelID)
+	if err := m.store.RemoveSourcesForChannel(channelID); err != nil {
+		log.Printf("cleanup: remove sources for channel %d: %v", channelID, err)
+	}
 	if err := m.store.DeleteOverridesForChannel(channelID); err != nil {
 		log.Printf("cleanup: delete overrides for channel %d: %v", channelID, err)
 	}
@@ -104,6 +108,7 @@ func (m *Manager) StartupSweep() {
 		if !containsUser(members, p.OwnerID) {
 			m.startHandoffTimer(p.ChannelID, p.OwnerID)
 		}
+		m.reconcileFoFSources(p, members)
 	}
 
 	log.Printf("startup sweep complete: %d parties checked", len(parties))

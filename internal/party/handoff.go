@@ -87,21 +87,32 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 }
 
 // rewriteOverwrites recomputes and applies the full overwrite set for
-// channelID against ownerID's current friends and the channel's manual
-// party_overrides, per spec.md Ownership Rewrite.
+// channelID against ownerID's current friends, the channel's active
+// friends-of-friends sources, and the channel's manual party_overrides, per
+// spec.md Ownership Rewrite. Sources survive the handoff - they belong to
+// the channel, not the owner.
 func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	friendIDs, err := m.store.FriendIDs(ownerID)
 	if err != nil {
 		return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
+	}
+	sourceIDs, err := m.store.SourceIDsForChannel(channelID)
+	if err != nil {
+		return fmt.Errorf("load sources for channel %d: %w", channelID, err)
 	}
 	overrides, err := m.store.OverridesForChannel(channelID)
 	if err != nil {
 		return fmt.Errorf("load overrides for channel %d: %w", channelID, err)
 	}
 
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, ownerID, friendIDs, sourceIDs, overrides)
+	if err != nil {
+		return fmt.Errorf("build overwrites for channel %d: %w", channelID, err)
+	}
+
 	channelIDStr := strconv.FormatInt(channelID, 10)
 	_, err = m.session.ChannelEditComplex(channelIDStr, &discordgo.ChannelEdit{
-		PermissionOverwrites: buildRewriteOverwrites(m.guildID, ownerID, friendIDs, overrides),
+		PermissionOverwrites: overwrites,
 	})
 	if err != nil {
 		return fmt.Errorf("edit channel %d overwrites: %w", channelID, err)

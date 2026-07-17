@@ -1,6 +1,7 @@
 package party
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
@@ -35,13 +36,27 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 
 // buildRewriteOverwrites returns the full overwrite set for a party channel
 // after an ownership handoff, per spec.md Ownership Rewrite: @everyone
-// denied, the new owner and their friends allowed, then each manual
-// party_overrides row applied last so it wins over the friend defaults.
-func buildRewriteOverwrites(guildID string, ownerID int64, friendIDs []int64, overrides []store.Override) []*discordgo.PermissionOverwrite {
-	allow := make(map[int64]bool, len(friendIDs)+1+len(overrides))
+// denied, the new owner and their friends allowed, then each active
+// friends-of-friends source's own friends folded in, then each manual
+// party_overrides row applied last so it wins over every default.
+//
+// sourceIDs are the channel's active friends-of-friends scan sources
+// (party_sources); their friend lists are crawled live rather than stored,
+// per spec.md's "store what cannot be derived" rule.
+func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, friendIDs []int64, sourceIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
+	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+1+len(overrides))
 	allow[ownerID] = true
 	for _, friendID := range friendIDs {
 		allow[friendID] = true
+	}
+	for _, sourceID := range sourceIDs {
+		sourceFriendIDs, err := st.FriendIDs(sourceID)
+		if err != nil {
+			return nil, fmt.Errorf("load friends for source %d: %w", sourceID, err)
+		}
+		for _, friendID := range sourceFriendIDs {
+			allow[friendID] = true
+		}
 	}
 	for _, o := range overrides {
 		allow[o.UserID] = o.Type == "allow"
@@ -56,7 +71,7 @@ func buildRewriteOverwrites(guildID string, ownerID int64, friendIDs []int64, ov
 	for userID, allowed := range allow {
 		overwrites = append(overwrites, memberOverwrite(userID, allowed))
 	}
-	return overwrites
+	return overwrites, nil
 }
 
 func memberOverwrite(userID int64, allow bool) *discordgo.PermissionOverwrite {

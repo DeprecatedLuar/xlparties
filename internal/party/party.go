@@ -25,6 +25,11 @@ type Manager struct {
 	mu            sync.Mutex
 	handoffTimers map[int64]*time.Timer
 	cleanupTimers map[int64]*time.Timer
+
+	// fofJoinTimers/fofLeaveTimers drive the friends-of-friends scan: keyed
+	// by channel id then member id. See friendsoffriends.go.
+	fofJoinTimers  map[int64]map[int64]*time.Timer
+	fofLeaveTimers map[int64]map[int64]*time.Timer
 }
 
 // NewManager constructs a Manager. Call Register to start listening for the
@@ -38,6 +43,8 @@ func NewManager(session *discordgo.Session, st *store.Store, guildID string, emp
 		ownerAbsenceHandoff: ownerAbsenceHandoff,
 		handoffTimers:       make(map[int64]*time.Timer),
 		cleanupTimers:       make(map[int64]*time.Timer),
+		fofJoinTimers:       make(map[int64]map[int64]*time.Timer),
+		fofLeaveTimers:      make(map[int64]map[int64]*time.Timer),
 	}
 }
 
@@ -111,6 +118,14 @@ func (m *Manager) onJoinChannel(channelID, userID string) {
 	m.cancelCleanupTimer(channelIDInt)
 	if strconv.FormatInt(party.OwnerID, 10) == userID {
 		m.cancelHandoffTimer(channelIDInt)
+	} else if party.AccessMode == store.AccessModeFriendsOfFriends {
+		userIDInt, err := strconv.ParseInt(userID, 10, 64)
+		if err != nil {
+			log.Printf("parse joining user id %q: %v", userID, err)
+			return
+		}
+		m.cancelFoFLeaveTimer(channelIDInt, userIDInt)
+		m.startFoFJoinTimer(channelIDInt, userIDInt)
 	}
 }
 
@@ -130,6 +145,16 @@ func (m *Manager) onLeaveChannel(channelID, userID string) {
 	}
 	if !exists {
 		return
+	}
+
+	if party.AccessMode == store.AccessModeFriendsOfFriends && strconv.FormatInt(party.OwnerID, 10) != userID {
+		userIDInt, err := strconv.ParseInt(userID, 10, 64)
+		if err != nil {
+			log.Printf("parse leaving user id %q: %v", userID, err)
+		} else {
+			m.cancelFoFJoinTimer(channelIDInt, userIDInt)
+			m.startFoFLeaveTimer(channelIDInt, userIDInt)
+		}
 	}
 
 	members := m.membersInChannel(channelID)

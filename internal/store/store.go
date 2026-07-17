@@ -21,6 +21,12 @@ const (
 	ConfigKeyCategory     = "party_category_id"
 )
 
+// Access modes stored on the parties table.
+const (
+	AccessModeFriendsOfFriends = "friends_of_friends"
+	AccessModeFriendsOnly      = "friends_only"
+)
+
 // Store wraps the database connection and exposes all query methods.
 type Store struct {
 	db *sql.DB
@@ -28,9 +34,10 @@ type Store struct {
 
 // Party is a row from the parties table.
 type Party struct {
-	ChannelID int64
-	OwnerID   int64
-	CreatedAt int64
+	ChannelID  int64
+	OwnerID    int64
+	CreatedAt  int64
+	AccessMode string
 }
 
 // Override is a row from the party_overrides table.
@@ -217,17 +224,17 @@ func (s *Store) DeleteParty(channelID int64) error {
 
 // PartyByOwner returns the active party owned by ownerID, if any.
 func (s *Store) PartyByOwner(ownerID int64) (*Party, bool, error) {
-	return s.queryOneParty(`SELECT channel_id, owner_id, created_at FROM parties WHERE owner_id = ?`, ownerID)
+	return s.queryOneParty(`SELECT channel_id, owner_id, created_at, access_mode FROM parties WHERE owner_id = ?`, ownerID)
 }
 
 // PartyByChannel returns the party row for channelID, if any.
 func (s *Store) PartyByChannel(channelID int64) (*Party, bool, error) {
-	return s.queryOneParty(`SELECT channel_id, owner_id, created_at FROM parties WHERE channel_id = ?`, channelID)
+	return s.queryOneParty(`SELECT channel_id, owner_id, created_at, access_mode FROM parties WHERE channel_id = ?`, channelID)
 }
 
 func (s *Store) queryOneParty(query string, arg int64) (*Party, bool, error) {
 	var p Party
-	err := s.db.QueryRow(query, arg).Scan(&p.ChannelID, &p.OwnerID, &p.CreatedAt)
+	err := s.db.QueryRow(query, arg).Scan(&p.ChannelID, &p.OwnerID, &p.CreatedAt, &p.AccessMode)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -239,7 +246,7 @@ func (s *Store) queryOneParty(query string, arg int64) (*Party, bool, error) {
 
 // AllParties returns every party row, for the startup sweep.
 func (s *Store) AllParties() ([]Party, error) {
-	rows, err := s.db.Query(`SELECT channel_id, owner_id, created_at FROM parties`)
+	rows, err := s.db.Query(`SELECT channel_id, owner_id, created_at, access_mode FROM parties`)
 	if err != nil {
 		return nil, fmt.Errorf("query all parties: %w", err)
 	}
@@ -248,7 +255,7 @@ func (s *Store) AllParties() ([]Party, error) {
 	var parties []Party
 	for rows.Next() {
 		var p Party
-		if err := rows.Scan(&p.ChannelID, &p.OwnerID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ChannelID, &p.OwnerID, &p.CreatedAt, &p.AccessMode); err != nil {
 			return nil, fmt.Errorf("scan party: %w", err)
 		}
 		parties = append(parties, p)
@@ -306,4 +313,58 @@ func (s *Store) OverridesForChannel(channelID int64) ([]Override, error) {
 		overrides = append(overrides, o)
 	}
 	return overrides, rows.Err()
+}
+
+// --- party_sources ---
+
+// AddSource records userID as an active friends-of-friends scan source for
+// channelID (their friends contribute to the party's allow-set).
+func (s *Store) AddSource(channelID, userID int64) error {
+	_, err := s.db.Exec(`
+		INSERT INTO party_sources (channel_id, user_id, created_at) VALUES (?, ?, ?)
+		ON CONFLICT (channel_id, user_id) DO NOTHING
+	`, channelID, userID, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("add source (%d,%d): %w", channelID, userID, err)
+	}
+	return nil
+}
+
+// RemoveSource drops userID as a scan source for channelID.
+func (s *Store) RemoveSource(channelID, userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM party_sources WHERE channel_id = ? AND user_id = ?`, channelID, userID)
+	if err != nil {
+		return fmt.Errorf("remove source (%d,%d): %w", channelID, userID, err)
+	}
+	return nil
+}
+
+// RemoveSourcesForChannel drops all scan sources for channelID, on party
+// cleanup or a switch to friends-only mode.
+func (s *Store) RemoveSourcesForChannel(channelID int64) error {
+	_, err := s.db.Exec(`DELETE FROM party_sources WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return fmt.Errorf("remove sources for channel %d: %w", channelID, err)
+	}
+	return nil
+}
+
+// SourceIDsForChannel returns the ids of every active scan source for
+// channelID.
+func (s *Store) SourceIDsForChannel(channelID int64) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT user_id FROM party_sources WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("query sources for channel %d: %w", channelID, err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan source id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }

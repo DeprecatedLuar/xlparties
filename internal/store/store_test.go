@@ -83,3 +83,62 @@ func TestConfigUpsertAndLookup(t *testing.T) {
 		t.Fatal("GetConfig missing key returned ok=true")
 	}
 }
+
+func TestPartySources(t *testing.T) {
+	s := openTestStore(t)
+
+	const channel, owner, sourceA, sourceB = int64(9001), int64(1001), int64(2002), int64(3003)
+
+	if err := s.InsertParty(channel, owner); err != nil {
+		t.Fatalf("InsertParty: %v", err)
+	}
+
+	party, ok, err := s.PartyByChannel(channel)
+	if err != nil {
+		t.Fatalf("PartyByChannel: %v", err)
+	}
+	if !ok || party.AccessMode != AccessModeFriendsOfFriends {
+		t.Fatalf("PartyByChannel access_mode = %q, want %q", party.AccessMode, AccessModeFriendsOfFriends)
+	}
+
+	if err := s.AddSource(channel, sourceA); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	if err := s.AddSource(channel, sourceB); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	// Re-adding an existing source must not error (ON CONFLICT DO NOTHING).
+	if err := s.AddSource(channel, sourceA); err != nil {
+		t.Fatalf("AddSource (duplicate): %v", err)
+	}
+
+	ids, err := s.SourceIDsForChannel(channel)
+	if err != nil {
+		t.Fatalf("SourceIDsForChannel: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("SourceIDsForChannel = %v, want 2 ids", ids)
+	}
+
+	if err := s.RemoveSource(channel, sourceA); err != nil {
+		t.Fatalf("RemoveSource: %v", err)
+	}
+	ids, err = s.SourceIDsForChannel(channel)
+	if err != nil {
+		t.Fatalf("SourceIDsForChannel: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != sourceB {
+		t.Fatalf("SourceIDsForChannel after RemoveSource = %v, want [%d]", ids, sourceB)
+	}
+
+	if err := s.RemoveSourcesForChannel(channel); err != nil {
+		t.Fatalf("RemoveSourcesForChannel: %v", err)
+	}
+	ids, err = s.SourceIDsForChannel(channel)
+	if err != nil {
+		t.Fatalf("SourceIDsForChannel: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("SourceIDsForChannel after RemoveSourcesForChannel = %v, want empty", ids)
+	}
+}
