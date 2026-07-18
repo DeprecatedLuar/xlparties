@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"math/rand"
 	"strings"
-	"unicode"
 )
 
 //go:embed wordbanks/adjectives.txt
@@ -49,42 +48,22 @@ func cleanLines(raw string) []string {
 	return result
 }
 
-func capitalize(s string) string {
-	if s == "" {
-		return ""
-	}
-	parts := strings.Split(s, "-")
-	for i, part := range parts {
-		if len(part) > 0 {
-			runes := []rune(part)
-			runes[0] = unicode.ToUpper(runes[0])
-			parts[i] = string(runes)
-		}
-	}
-	return strings.Join(parts, "-")
-}
-
 // Generate returns a random name matching one of the Terraria templates,
-// retrying until it fits maxNameLength (27 characters).
-// The generated name is normalized to lowercase with spaces replaced by hyphens.
+// retrying until it fits maxNameLength (27 characters). The result is
+// normalized to lowercase with spaces replaced by hyphens.
 func Generate() string {
 	for {
-		template := templates[rand.Intn(len(templates))]
-		name := template
+		name := templates[rand.Intn(len(templates))]
 		if strings.Contains(name, "<Adjective>") {
-			adj := adjectives[rand.Intn(len(adjectives))]
-			name = strings.ReplaceAll(name, "<Adjective>", capitalize(adj))
+			name = strings.ReplaceAll(name, "<Adjective>", adjectives[rand.Intn(len(adjectives))])
 		}
 		if strings.Contains(name, "<Location>") {
-			loc := locations[rand.Intn(len(locations))]
-			name = strings.ReplaceAll(name, "<Location>", capitalize(loc))
+			name = strings.ReplaceAll(name, "<Location>", locations[rand.Intn(len(locations))])
 		}
 		if strings.Contains(name, "<Noun>") {
-			noun := nouns[rand.Intn(len(nouns))]
-			name = strings.ReplaceAll(name, "<Noun>", capitalize(noun))
+			name = strings.ReplaceAll(name, "<Noun>", nouns[rand.Intn(len(nouns))])
 		}
 
-		// Normalize: lowercase and replace spaces with hyphens
 		name = strings.ToLower(name)
 		name = strings.ReplaceAll(name, " ", "-")
 
