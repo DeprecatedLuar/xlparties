@@ -56,6 +56,8 @@ logs
 # Purpose and planning files
 vision.md
 CLAUDE.md
+GEMINI.md
+gemini.md
 implementation-plan.md
 implementation-history.md
 .env
