@@ -1,12 +1,12 @@
 package party
 
 import (
-	"log"
 	"strconv"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/store"
 )
 
@@ -54,21 +54,21 @@ func (m *Manager) runCleanup(channelID int64) {
 func (m *Manager) deleteParty(channelID int64) {
 	channelIDStr := strconv.FormatInt(channelID, 10)
 	if _, err := m.session.ChannelDelete(channelIDStr); err != nil {
-		log.Printf("cleanup: delete channel %d: %v", channelID, err)
+		logger.Error("cleanup: delete channel", "channel", channelID, "error", err)
 		return
 	}
 	m.cancelFoFTimersForChannel(channelID)
 	if err := m.store.RemoveSourcesForChannel(channelID); err != nil {
-		log.Printf("cleanup: remove sources for channel %d: %v", channelID, err)
+		logger.Error("cleanup: remove sources for channel", "channel", channelID, "error", err)
 	}
 	if err := m.store.DeleteOverridesForChannel(channelID); err != nil {
-		log.Printf("cleanup: delete overrides for channel %d: %v", channelID, err)
+		logger.Error("cleanup: delete overrides for channel", "channel", channelID, "error", err)
 	}
 	if err := m.store.DeleteParty(channelID); err != nil {
-		log.Printf("cleanup: delete party row for channel %d: %v", channelID, err)
+		logger.Error("cleanup: delete party row for channel", "channel", channelID, "error", err)
 		return
 	}
-	log.Printf("party cleaned up: channel=%d", channelID)
+	logger.Info("party cleaned up", "channel", channelID)
 }
 
 // StartupSweep reconciles the parties table against live Discord state after
@@ -78,24 +78,24 @@ func (m *Manager) deleteParty(channelID int64) {
 func (m *Manager) StartupSweep() {
 	parties, err := m.store.AllParties()
 	if err != nil {
-		log.Printf("startup sweep: load parties: %v", err)
+		logger.Error("startup sweep: load parties", "error", err)
 		return
 	}
 
 	for _, p := range parties {
 		exists, err := m.channelExists(p.ChannelID)
 		if err != nil {
-			log.Printf("startup sweep: check channel %d: %v", p.ChannelID, err)
+			logger.Error("startup sweep: check channel", "channel", p.ChannelID, "error", err)
 			continue
 		}
 		if !exists {
 			if err := m.store.DeleteOverridesForChannel(p.ChannelID); err != nil {
-				log.Printf("startup sweep: delete overrides for orphan channel %d: %v", p.ChannelID, err)
+				logger.Error("startup sweep: delete overrides for orphan channel", "channel", p.ChannelID, "error", err)
 			}
 			if err := m.store.DeleteParty(p.ChannelID); err != nil {
-				log.Printf("startup sweep: delete orphan party row %d: %v", p.ChannelID, err)
+				logger.Error("startup sweep: delete orphan party row", "channel", p.ChannelID, "error", err)
 			}
-			log.Printf("startup sweep: removed orphan party row for channel %d", p.ChannelID)
+			logger.Info("startup sweep: removed orphan party row", "channel", p.ChannelID)
 			continue
 		}
 
@@ -111,7 +111,7 @@ func (m *Manager) StartupSweep() {
 		m.reconcileFoFSources(p, members)
 	}
 
-	log.Printf("startup sweep complete: %d parties checked", len(parties))
+	logger.Info("startup sweep complete", "parties_checked", len(parties))
 }
 
 // SweepOrphanChannels reports (but does not delete) voice channels sitting
@@ -129,23 +129,23 @@ func (m *Manager) StartupSweep() {
 func (m *Manager) SweepOrphanChannels() {
 	categoryID, ok, err := m.store.GetConfig(store.ConfigKeyCategory)
 	if err != nil {
-		log.Printf("self heal: load party category config: %v", err)
+		logger.Error("self heal: load party category config", "error", err)
 		return
 	}
 	if !ok {
-		log.Println("self heal: party_category not configured, skipping orphan channel sweep")
+		logger.Warn("self heal: party_category not configured, skipping orphan channel sweep")
 		return
 	}
 
 	channels, err := m.session.GuildChannels(m.guildID)
 	if err != nil {
-		log.Printf("self heal: list guild channels: %v", err)
+		logger.Error("self heal: list guild channels", "error", err)
 		return
 	}
 
 	parties, err := m.store.AllParties()
 	if err != nil {
-		log.Printf("self heal: load parties: %v", err)
+		logger.Error("self heal: load parties", "error", err)
 		return
 	}
 	known := make(map[int64]struct{}, len(parties))
@@ -160,15 +160,15 @@ func (m *Manager) SweepOrphanChannels() {
 		}
 		channelID, err := strconv.ParseInt(c.ID, 10, 64)
 		if err != nil {
-			log.Printf("self heal: parse channel id %q: %v", c.ID, err)
+			logger.Error("self heal: parse channel id", "channel_id", c.ID, "error", err)
 			continue
 		}
 		if _, tracked := known[channelID]; tracked {
 			continue
 		}
 		found++
-		log.Printf("self heal: untracked channel in party category: id=%d name=%q (not deleted, dry-run only, verify manually)", channelID, c.Name)
+		logger.Warn("self heal: untracked channel in party category (not deleted, dry-run only, verify manually)", "channel", channelID, "name", c.Name)
 	}
 
-	log.Printf("self heal: orphan channel sweep complete: %d untracked channels found (dry-run, none deleted)", found)
+	logger.Info("self heal: orphan channel sweep complete (dry-run, none deleted)", "untracked_found", found)
 }

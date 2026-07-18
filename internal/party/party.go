@@ -2,13 +2,13 @@
 package party
 
 import (
-	"log"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/store"
 )
 
@@ -54,17 +54,22 @@ func (m *Manager) Register() {
 	m.session.AddHandler(m.onVoiceStateUpdate)
 }
 
-// WarnIfWatchChannelUnset logs a warning if no watch channel is configured
-// yet, so the gap is visible at startup rather than discovered silently on
-// the first join.
-func (m *Manager) WarnIfWatchChannelUnset() {
+// WarnIfUnconfigured logs a warning for any required config (watch channel,
+// party category) that is missing at startup, so the gap is visible
+// immediately rather than discovered silently on the first join.
+func (m *Manager) WarnIfUnconfigured() {
 	_, ok, err := m.store.GetConfig(store.ConfigKeyWatchChannel)
 	if err != nil {
-		log.Printf("check watch channel config: %v", err)
-		return
+		logger.Error("check watch channel config", "error", err)
+	} else if !ok {
+		logger.Warn("watch_channel not configured — party creation disabled until /configure watch_channel is run")
 	}
-	if !ok {
-		log.Println("watch_channel not configured — party creation disabled until /configure watch_channel is run")
+
+	_, ok, err = m.store.GetConfig(store.ConfigKeyCategory)
+	if err != nil {
+		logger.Error("check party category config", "error", err)
+	} else if !ok {
+		logger.Warn("party_category not configured — party creation will fail until /configure category is run")
 	}
 }
 
@@ -91,24 +96,24 @@ func (m *Manager) onVoiceStateUpdate(_ *discordgo.Session, v *discordgo.VoiceSta
 func (m *Manager) onJoinChannel(channelID, userID string) {
 	watchChannelID, ok, err := m.store.GetConfig(store.ConfigKeyWatchChannel)
 	if err != nil {
-		log.Printf("load watch channel config: %v", err)
+		logger.Error("load watch channel config", "error", err)
 	} else if ok && channelID == watchChannelID {
 		ownerID, err := strconv.ParseInt(userID, 10, 64)
 		if err != nil {
-			log.Printf("parse joining user id %q: %v", userID, err)
+			logger.Error("parse joining user id", "user_id", userID, "error", err)
 		} else if err := m.spawnParty(ownerID); err != nil {
-			log.Printf("spawn party for owner %d: %v", ownerID, err)
+			logger.Error("spawn party", "owner", ownerID, "error", err)
 		}
 	}
 
 	channelIDInt, err := strconv.ParseInt(channelID, 10, 64)
 	if err != nil {
-		log.Printf("parse channel id %q: %v", channelID, err)
+		logger.Error("parse channel id", "channel_id", channelID, "error", err)
 		return
 	}
 	party, exists, err := m.store.PartyByChannel(channelIDInt)
 	if err != nil {
-		log.Printf("check party for channel %d: %v", channelIDInt, err)
+		logger.Error("check party for channel", "channel", channelIDInt, "error", err)
 		return
 	}
 	if !exists {
@@ -121,7 +126,7 @@ func (m *Manager) onJoinChannel(channelID, userID string) {
 	} else if party.AccessMode == store.AccessModeFriendsOfFriends {
 		userIDInt, err := strconv.ParseInt(userID, 10, 64)
 		if err != nil {
-			log.Printf("parse joining user id %q: %v", userID, err)
+			logger.Error("parse joining user id", "user_id", userID, "error", err)
 			return
 		}
 		m.cancelFoFLeaveTimer(channelIDInt, userIDInt)
@@ -135,12 +140,12 @@ func (m *Manager) onJoinChannel(channelID, userID string) {
 func (m *Manager) onLeaveChannel(channelID, userID string) {
 	channelIDInt, err := strconv.ParseInt(channelID, 10, 64)
 	if err != nil {
-		log.Printf("parse channel id %q: %v", channelID, err)
+		logger.Error("parse channel id", "channel_id", channelID, "error", err)
 		return
 	}
 	party, exists, err := m.store.PartyByChannel(channelIDInt)
 	if err != nil {
-		log.Printf("check party for channel %d: %v", channelIDInt, err)
+		logger.Error("check party for channel", "channel", channelIDInt, "error", err)
 		return
 	}
 	if !exists {
@@ -150,7 +155,7 @@ func (m *Manager) onLeaveChannel(channelID, userID string) {
 	if party.AccessMode == store.AccessModeFriendsOfFriends && strconv.FormatInt(party.OwnerID, 10) != userID {
 		userIDInt, err := strconv.ParseInt(userID, 10, 64)
 		if err != nil {
-			log.Printf("parse leaving user id %q: %v", userID, err)
+			logger.Error("parse leaving user id", "user_id", userID, "error", err)
 		} else {
 			m.cancelFoFJoinTimer(channelIDInt, userIDInt)
 			m.startFoFLeaveTimer(channelIDInt, userIDInt)
@@ -174,7 +179,7 @@ func (m *Manager) onLeaveChannel(channelID, userID string) {
 func (m *Manager) membersInChannel(channelID string) []string {
 	guild, err := m.session.State.Guild(m.guildID)
 	if err != nil {
-		log.Printf("load guild voice state: %v", err)
+		logger.Error("load guild voice state", "error", err)
 		return nil
 	}
 	var members []string

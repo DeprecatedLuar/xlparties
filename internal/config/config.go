@@ -3,12 +3,13 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/joho/godotenv"
+
+	"xlparties/internal/logger"
 )
 
 const (
@@ -36,7 +37,7 @@ type Config struct {
 // a documented, predictable standard rather than a silent guess.
 func Load() (*Config, error) {
 	if err := godotenv.Load(); err != nil {
-		log.Println("no .env file found, reading from process environment")
+		logger.Info("no .env file found, reading from process environment")
 	}
 
 	token := os.Getenv("DISCORD_TOKEN")

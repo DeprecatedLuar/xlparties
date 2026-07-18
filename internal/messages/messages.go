@@ -10,14 +10,22 @@ const (
 	CannotTargetSelf    = "you cannot target yourself"
 )
 
-// /vc_allow, /vc_deny
+// /party_allow, /party_deny
 const (
 	FailedResolveChannel = "failed to resolve the current channel"
 	FailedLookupParty    = "failed to look up this party"
+	NotInParty           = "My sibling in Lord... thou art not even in a party."
 	MustBeOwner          = "Sorry blud. You must be the owner of the party channel. Currently that's <@%d>"
 	FailedOverrideUser   = "failed to %s user"
 	UserAllowed          = "<@%d> is now allowed in this party"
 	UserDenied           = "<@%d> is now exiled from this party. (mwahaha)"
+)
+
+// /party_mode
+const (
+	PartyModePrompt    = "pick an access mode for this party"
+	PartyModeSet       = "this party's access mode is now **%s**"
+	FailedSetPartyMode = "failed to set access mode to %s"
 )
 
 // /configure
@@ -44,16 +52,26 @@ const (
 	FriendRemoved      = "<@%d> has been REMOVED as a friend (mwahaha)"
 )
 
-// /block
+// /enemy_add
 const (
-	FailedBlockUser = "Errm... it seems *I* failed to block the user (please panic)"
-	UserBlocked     = "blocked <@%d> (mwahaha)"
+	FailedAddEnemy = "Errm... it seems *I* failed to add the enemy (please panic)"
+	EnemyAdded     = "<@%d> is now your ENEMY and won't be able to join your parties any longer (as long as you're the owner)"
 )
 
-// /unblock
+// /enemy_remove
 const (
-	FailedUnblockUser = "Errm... it seems *I* failed to unblock user (please panic)"
-	UserUnblocked     = "unblocked <@%d>"
+	FailedRemoveEnemy = "Errm... it seems *I* failed to remove the enemy (please panic)"
+	EnemyRemoved      = "<@%d> is no longer your enemy"
+)
+
+// /friend_list, /enemy_list
+const (
+	FailedListFriends = "failed to list friends"
+	FailedListEnemies = "failed to list enemies"
+	NoFriends         = "you have no friends yet"
+	NoEnemies         = "you have no enemies yet"
+	FriendListHeader  = "**Your friends:**\n%s"
+	EnemyListHeader   = "**Your enemies:**\n%s"
 )
 
 // party ownership handoff notice, posted by internal/party.

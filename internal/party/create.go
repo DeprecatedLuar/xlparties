@@ -3,11 +3,11 @@ package party
 import (
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/naming"
 	"xlparties/internal/store"
 )
@@ -39,7 +39,7 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		if err := m.store.DeleteParty(existing.ChannelID); err != nil {
 			return fmt.Errorf("delete stale party row for channel %d: %w", existing.ChannelID, err)
 		}
-		log.Printf("party channel %d for owner %d no longer exists on Discord, reclaiming slot", existing.ChannelID, ownerID)
+		logger.Info("party channel no longer exists on Discord, reclaiming slot", "channel", existing.ChannelID, "owner", ownerID)
 	}
 
 	friendIDs, err := m.store.FriendIDs(ownerID)
@@ -68,7 +68,7 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	}
 	if err := m.store.InsertParty(channelID, ownerID); err != nil {
 		if _, delErr := m.session.ChannelDelete(channel.ID); delErr != nil {
-			log.Printf("rollback: delete channel %d after failed party insert: %v", channelID, delErr)
+			logger.Error("rollback: delete channel after failed party insert", "channel", channelID, "error", delErr)
 		}
 		return fmt.Errorf("insert party row for channel %d: %w", channelID, err)
 	}
@@ -78,7 +78,7 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		return fmt.Errorf("move owner %d into party channel %d: %w", ownerID, channelID, err)
 	}
 
-	log.Printf("party created: channel=%d owner=%d friends=%d", channelID, ownerID, len(friendIDs))
+	logger.Info("party created", "channel", channelID, "owner", ownerID, "friends", len(friendIDs))
 	return nil
 }
 

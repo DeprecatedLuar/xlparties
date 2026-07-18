@@ -2,7 +2,6 @@ package party
 
 import (
 	"fmt"
-	"log"
 	"math/rand"
 	"slices"
 	"strconv"
@@ -10,7 +9,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/messages"
+	"xlparties/internal/store"
 )
 
 // startHandoffTimer arms the owner-absence handoff timer for channelID if
@@ -49,7 +50,7 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 
 	party, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
-		log.Printf("handoff: load party %d: %v", channelID, err)
+		logger.Error("handoff: load party", "channel", channelID, "error", err)
 		return
 	}
 	if !exists || party.OwnerID != absentOwnerID {
@@ -67,34 +68,47 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 
 	newOwnerID, err := m.pickHandoffSuccessor(members, absentOwnerID)
 	if err != nil {
-		log.Printf("handoff: pick successor for channel %d: %v", channelID, err)
+		logger.Error("handoff: pick successor", "channel", channelID, "error", err)
 		return
 	}
 
 	if err := m.store.UpdateOwner(channelID, newOwnerID); err != nil {
-		log.Printf("handoff: update owner for channel %d: %v", channelID, err)
+		logger.Error("handoff: update owner", "channel", channelID, "error", err)
 		return
 	}
 	if err := m.rewriteOverwrites(channelID, newOwnerID); err != nil {
-		log.Printf("handoff: rewrite overwrites for channel %d: %v", channelID, err)
+		logger.Error("handoff: rewrite overwrites", "channel", channelID, "error", err)
 		return
 	}
 	if _, err := m.session.ChannelMessageSend(channelIDStr, fmt.Sprintf(messages.NewOwner, newOwnerID)); err != nil {
-		log.Printf("handoff: post notice in channel %d: %v", channelID, err)
+		logger.Error("handoff: post notice", "channel", channelID, "error", err)
 	}
 
-	log.Printf("party handoff: channel=%d old_owner=%d new_owner=%d", channelID, absentOwnerID, newOwnerID)
+	logger.Info("party handoff", "channel", channelID, "old_owner", absentOwnerID, "new_owner", newOwnerID)
 }
 
 // rewriteOverwrites recomputes and applies the full overwrite set for
 // channelID against ownerID's current friends, the channel's active
 // friends-of-friends sources, and the channel's manual party_overrides, per
 // spec.md Ownership Rewrite. Sources survive the handoff - they belong to
-// the channel, not the owner.
+// the channel, not the owner. In invite_only mode the owner's friend list is
+// excluded entirely - only the owner and explicit party_overrides allow rows
+// grant access.
 func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
-	friendIDs, err := m.store.FriendIDs(ownerID)
+	current, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
-		return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
+		return fmt.Errorf("load party %d: %w", channelID, err)
+	}
+	if !exists {
+		return fmt.Errorf("party %d not found", channelID)
+	}
+
+	var friendIDs []int64
+	if current.AccessMode != store.AccessModeInviteOnly {
+		friendIDs, err = m.store.FriendIDs(ownerID)
+		if err != nil {
+			return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
+		}
 	}
 	sourceIDs, err := m.store.SourceIDsForChannel(channelID)
 	if err != nil {

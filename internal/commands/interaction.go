@@ -2,11 +2,11 @@ package commands
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/messages"
 )
 
@@ -32,13 +32,13 @@ func userOptionID(i *discordgo.InteractionCreate) (int64, error) {
 func callerAndTarget(s *discordgo.Session, i *discordgo.InteractionCreate) (caller, target int64, ok bool) {
 	caller, err := callerID(i)
 	if err != nil {
-		log.Printf("resolve caller id: %v", err)
+		logger.Error("resolve caller id", "error", err)
 		respondEphemeral(s, i, messages.FailedResolveCaller)
 		return 0, 0, false
 	}
 	target, err = userOptionID(i)
 	if err != nil {
-		log.Printf("resolve target user id: %v", err)
+		logger.Error("resolve target user id", "error", err)
 		respondEphemeral(s, i, messages.FailedResolveTarget)
 		return 0, 0, false
 	}
@@ -66,6 +66,6 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message strin
 		},
 	})
 	if err != nil {
-		fmt.Printf("failed to respond to interaction %q: %v\n", i.ID, err)
+		logger.Error("respond to interaction", "interaction", i.ID, "error", err)
 	}
 }

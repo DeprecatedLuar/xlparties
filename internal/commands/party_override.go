@@ -2,11 +2,11 @@ package commands
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/messages"
 	"xlparties/internal/party"
 	"xlparties/internal/store"
@@ -17,15 +17,15 @@ const (
 	overrideTypeDeny  = "deny"
 )
 
-func handleVCAllow(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
-	handleVCOverride(s, i, st, overrideTypeAllow)
+func handlePartyAllow(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+	handlePartyOverride(s, i, st, overrideTypeAllow)
 }
 
-func handleVCDeny(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
-	handleVCOverride(s, i, st, overrideTypeDeny)
+func handlePartyDeny(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+	handlePartyOverride(s, i, st, overrideTypeDeny)
 }
 
-func handleVCOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, overrideType string) {
+func handlePartyOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, overrideType string) {
 	caller, target, ok := callerAndTarget(s, i)
 	if !ok {
 		return
@@ -33,19 +33,23 @@ func handleVCOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *
 
 	channelID, err := strconv.ParseInt(i.ChannelID, 10, 64)
 	if err != nil {
-		log.Printf("vc_%s: parse channel id: %v", overrideType, err)
+		logger.Error("party override: parse channel id", "override_type", overrideType, "error", err)
 		respondEphemeral(s, i, messages.FailedResolveChannel)
 		return
 	}
 
 	activeParty, found, err := st.PartyByChannel(channelID)
 	if err != nil {
-		log.Printf("vc_%s: lookup party: %v", overrideType, err)
+		logger.Error("party override: lookup party", "override_type", overrideType, "error", err)
 		respondEphemeral(s, i, messages.FailedLookupParty)
 		return
 	}
-	if !found || activeParty.OwnerID != caller {
-		respondEphemeral(s, i, messages.MustBeOwner)
+	if !found {
+		respondEphemeral(s, i, messages.NotInParty)
+		return
+	}
+	if activeParty.OwnerID != caller {
+		respondEphemeral(s, i, fmt.Sprintf(messages.MustBeOwner, activeParty.OwnerID))
 		return
 	}
 
@@ -57,15 +61,17 @@ func handleVCOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *
 	}
 	targetID := strconv.FormatInt(target, 10)
 	if err := s.ChannelPermissionSet(i.ChannelID, targetID, discordgo.PermissionOverwriteTypeMember, allow, deny); err != nil {
-		log.Printf("vc_%s: set channel permission: %v", overrideType, err)
+		logger.Error("party override: set channel permission", "override_type", overrideType, "error", err)
 		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, overrideType))
 		return
 	}
 	if err := st.UpsertOverride(channelID, target, overrideType); err != nil {
-		log.Printf("vc_%s: upsert override: %v", overrideType, err)
+		logger.Error("party override: upsert override", "override_type", overrideType, "error", err)
 		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, overrideType))
 		return
 	}
+
+	logger.Info("party override set", "channel", channelID, "target", target, "override_type", overrideType)
 
 	if overrideType == overrideTypeAllow {
 		respondPublic(s, i, fmt.Sprintf(messages.UserAllowed, target))

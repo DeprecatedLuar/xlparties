@@ -3,7 +3,9 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
+	"strings"
+
+	"xlparties/internal/logger"
 )
 
 // column describes one column this schema version expects to exist, for
@@ -21,13 +23,14 @@ type column struct {
 // entry here.
 var expectedColumns = map[string][]column{
 	"parties": {
-		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only'))"},
+		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only'))"},
 	},
 }
 
 // migrateSchema adds any column listed in expectedColumns that is missing
-// from its table, for DBs created before that column existed. Safe to call
-// on every startup: columns already present are left untouched.
+// from its table, for DBs created before that column existed, then widens
+// constraints that have changed shape since. Safe to call on every startup:
+// anything already current is left untouched.
 func migrateSchema(db *sql.DB) error {
 	for table, columns := range expectedColumns {
 		existing, err := existingColumns(db, table)
@@ -42,9 +45,52 @@ func migrateSchema(db *sql.DB) error {
 			if _, err := db.Exec(stmt); err != nil {
 				return fmt.Errorf("add column %s.%s: %w", table, col.name, err)
 			}
-			log.Printf("store: migrated schema - added column %s.%s", table, col.name)
+			logger.Info("store: migrated schema, added column", "table", table, "column", col.name)
 		}
 	}
+	if err := migratePartiesAccessModeCheck(db); err != nil {
+		return fmt.Errorf("widen parties.access_mode check: %w", err)
+	}
+	return nil
+}
+
+// migratePartiesAccessModeCheck rebuilds the parties table if its
+// access_mode CHECK constraint predates the invite_only mode. SQLite has no
+// ALTER TABLE form for changing a CHECK constraint, so the only way to widen
+// one on an existing table is to recreate it under the DDL in schema.sql and
+// copy the data across. A no-op once the table already matches.
+func migratePartiesAccessModeCheck(db *sql.DB) error {
+	var tableSQL sql.NullString
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'parties'`).Scan(&tableSQL)
+	if err == sql.ErrNoRows {
+		return nil // fresh schema.sql apply already created the current shape
+	}
+	if err != nil {
+		return fmt.Errorf("read parties table definition: %w", err)
+	}
+	if strings.Contains(tableSQL.String, "invite_only") {
+		return nil // already current
+	}
+
+	statements := []string{
+		"PRAGMA foreign_keys = OFF",
+		`CREATE TABLE parties_new (
+			channel_id  INTEGER PRIMARY KEY,
+			owner_id    INTEGER NOT NULL,
+			created_at  INTEGER NOT NULL,
+			access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only'))
+		)`,
+		`INSERT INTO parties_new (channel_id, owner_id, created_at, access_mode) SELECT channel_id, owner_id, created_at, access_mode FROM parties`,
+		`DROP TABLE parties`,
+		`ALTER TABLE parties_new RENAME TO parties`,
+		"PRAGMA foreign_keys = ON",
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec %q: %w", stmt, err)
+		}
+	}
+	logger.Info("store: migrated schema, widened parties.access_mode check to include invite_only")
 	return nil
 }
 

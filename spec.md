@@ -10,7 +10,6 @@ This document covers v1 only. The following are explicitly deferred and out of s
 
 - Any-member allow (v1 restricts allow/deny to the owner).
 - Batch/multi-user command targets.
-- Per-channel access-mode switching (friends / friends-of-friends / invite-only).
 - DM notifications.
 - OAuth2 `relationships.read` integration with Discord's real friend graph.
 - Overwrite-budget pre-check at party creation (see Overwrite Budget).
@@ -46,7 +45,7 @@ CREATE TABLE parties (
   channel_id  INTEGER PRIMARY KEY,   -- the party voice channel snowflake
   owner_id    INTEGER NOT NULL,      -- current owner snowflake
   created_at  INTEGER NOT NULL,
-  access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only'))
+  access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only'))
 );
 
 CREATE TABLE party_overrides (
@@ -82,37 +81,43 @@ Relationship edges are global to the user within the guild. They are not scoped 
 
 ### parties
 
-`parties` is the persistent record of which channels the bot created and who currently owns each. It is the source of truth for the startup sweep, ownership tracking, and the duplicate-ownership guard. It is not held in memory alone. A row is inserted at party creation and deleted at party cleanup, matching the channel lifecycle. `owner_id` is updated on ownership handoff. `access_mode` selects which growth mechanic applies to the channel (see Friends-of-Friends Growth); it defaults to `friends_of_friends` and every party is created in that mode.
+`parties` is the persistent record of which channels the bot created and who currently owns each. It is the source of truth for the startup sweep, ownership tracking, and the duplicate-ownership guard. It is not held in memory alone. A row is inserted at party creation and deleted at party cleanup, matching the channel lifecycle. `owner_id` is updated on ownership handoff. `access_mode` selects which access mode applies to the channel (see Access Modes); it defaults to `friends_of_friends` and every party is created in that mode. It is not derivable from anything else — it is manual, channel-local owner intent, set via `/party_mode` — and must be stored so it survives a bot restart, since the startup sweep and the friends-of-friends scan both branch on it.
 
 ### party_overrides
 
-`party_overrides` stores per-channel manual access decisions set by `/vc_allow` and `/vc_deny`. It stores only manual overrides, not the creation-time friend whitelist. The friend whitelist is derived at build time from `relationships` and is not duplicated here.
+`party_overrides` stores per-channel manual access decisions set by `/party_allow` and `/party_deny`. It stores only manual overrides, not the creation-time friend whitelist. The friend whitelist is derived at build time from `relationships` and is not duplicated here.
 
 Manual overrides are stored because they cannot be reconstructed from any other source. They are channel-local intent. Friend defaults are not stored because they are reconstructable from `relationships`. The rule is: store what cannot be derived, derive what can.
 
-The `PRIMARY KEY (channel_id, user_id)` enforces one override per user per channel, mirroring Discord's single member-overwrite slot per user per channel. A later `/vc_deny` on a user who has an existing `/vc_allow` upserts the row from `allow` to `deny`, matching the overwrite behavior. Rows are deleted when the party is cleaned up.
+The `PRIMARY KEY (channel_id, user_id)` enforces one override per user per channel, mirroring Discord's single member-overwrite slot per user per channel. A later `/party_deny` on a user who has an existing `/party_allow` upserts the row from `allow` to `deny`, matching the overwrite behavior. Rows are deleted when the party is cleaned up.
 
 ### party_sources
 
 `party_sources` stores which non-owner members currently count as active friends-of-friends scan sources for a channel (see Friends-of-Friends Growth). It is the one piece of growth state that cannot be derived from `relationships` alone, since membership in it is driven by voice presence and timers, not by a relationship edge. The resulting allow-set — the union of `FriendIDs` over every source row for the channel — is never stored; it is crawled fresh each time the channel's overwrites are rebuilt, matching the same "store what cannot be derived, derive what can" rule already applied to `party_overrides`.
 
-Rows are inserted when a non-owner member has been present in the channel past the join delay, and deleted when a source has been absent past the leave grace (unless another still-present source also vouches for the same friend, in which case the union naturally still includes them). Rows are deleted in bulk when the party is cleaned up or switched to `friends_only`.
+Rows are inserted when a non-owner member has been present in the channel past the join delay, and deleted when a source has been absent past the leave grace (unless another still-present source also vouches for the same friend, in which case the union naturally still includes them). Rows are deleted in bulk when the party is cleaned up or switched away from `friends_of_friends` (to either `friends_only` or `invite_only`).
 
 ## Relationship Commands
 
 `/friend_add @user`
-Upsert `(caller, user, 'friend')` via `INSERT ... ON CONFLICT (granter_id, grantee_id) DO UPDATE SET relation_type = 'friend', created_at = <now>`. Upsert the `users` rows for both if absent. Upsert is required because a prior `block` edge for the same pair would otherwise violate the primary key.
+Upsert `(caller, user, 'friend')` via `INSERT ... ON CONFLICT (granter_id, grantee_id) DO UPDATE SET relation_type = 'friend', created_at = <now>`. Upsert the `users` rows for both if absent. Upsert is required because a prior `block` edge for the same pair would otherwise violate the primary key — adding a friend therefore also clears any existing enemy status for that pair.
 
 `/friend_remove @user`
 Delete `(caller, user, 'friend')`.
 
-`/block @user`
-Upsert `(caller, user, 'block')` via `INSERT ... ON CONFLICT (granter_id, grantee_id) DO UPDATE SET relation_type = 'block', created_at = <now>`. Upsert the `users` rows for both if absent.
+`/friend_list`
+List every user the caller has a `'friend'` edge to.
 
-`/unblock @user`
+`/enemy_add @user`
+Upsert `(caller, user, 'block')` via `INSERT ... ON CONFLICT (granter_id, grantee_id) DO UPDATE SET relation_type = 'block', created_at = <now>`. Upsert the `users` rows for both if absent. Same upsert reasoning as `/friend_add`, in reverse: adding an enemy also clears any existing friend status for that pair.
+
+`/enemy_remove @user`
 Delete `(caller, user, 'block')`.
 
-All four modify only the caller's own edges. Naming uses noun-first grouping for `friend_*`; `block` / `unblock` retained as idiomatic pair.
+`/enemy_list`
+List every user the caller has a `'block'` edge to.
+
+All six modify or read only the caller's own edges. Naming is noun-first (`friend_*` / `enemy_*`) for parity; `relation_type` in the schema keeps its original `'friend'`/`'block'` values — only the command-facing name is `enemy_*`.
 
 ## Party Lifecycle
 
@@ -156,7 +161,7 @@ Ownership handoff is triggered when the current owner is absent from the party c
 3. Rewrite the channel overwrites to the new owner's whitelist (see Ownership Rewrite).
 4. Post a message in the party channel's text chat notifying the new owner that they now hold ownership.
 
-Owner-only commands (`/vc_allow`, `/vc_deny`) act on behalf of whoever currently holds ownership.
+Owner-only commands (`/party_allow`, `/party_deny`) act on behalf of whoever currently holds ownership.
 
 Absence is measured from the owner's departure from the party channel. If the owner returns before 60 seconds elapse, no handoff occurs. The 60-second timer is in-memory. On bot restart the timer is not restored; ownership state is read from `parties`, and any pending handoff is re-evaluated against current channel membership.
 
@@ -167,23 +172,33 @@ The rewrite sets the channel's access to the new owner's defaults, then applies 
 Desired overwrite state after handoff:
 1. `@everyone`: deny `VIEW_CHANNEL`, deny `CONNECT`.
 2. The new owner: allow `VIEW_CHANNEL`, allow `CONNECT`.
-3. Each of the new owner's friends (from `relationships`): allow `VIEW_CHANNEL`, allow `CONNECT`.
-4. Each friend of each row in `party_sources` for this channel (see Friends-of-Friends Growth): allow `VIEW_CHANNEL`, allow `CONNECT`.
+3. Each of the new owner's friends (from `relationships`): allow `VIEW_CHANNEL`, allow `CONNECT`. Skipped entirely in `invite_only` mode (see Access Modes) — the new owner's friend list confers no default access there, same as it wouldn't have before the handoff.
+4. Each friend of each row in `party_sources` for this channel (see Friends-of-Friends Growth): allow `VIEW_CHANNEL`, allow `CONNECT`. `party_sources` is always empty outside `friends_of_friends` mode, so this step is a no-op in `friends_only`/`invite_only`.
 5. Each row in `party_overrides` for this channel, applied last: `allow` rows allow `VIEW_CHANNEL`/`CONNECT`; `deny` rows deny `VIEW_CHANNEL`/`CONNECT`.
 
-The desired state is computed in memory and applied as a bulk channel edit. Because `party_overrides` is applied last, a manual `/vc_deny` still overrides a new-owner friend default or a friends-of-friends grant, and a manual `/vc_allow` still grants a non-friend, consistent with Access Resolution. `party_sources` rows are not reset on handoff — sources belong to the channel, not the owner, so growth continues uninterrupted across a handoff.
+The desired state is computed in memory and applied as a bulk channel edit. Because `party_overrides` is applied last, a manual `/party_deny` still overrides a new-owner friend default or a friends-of-friends grant, and a manual `/party_allow` still grants a non-friend, consistent with Access Resolution. `party_sources` rows are not reset on handoff — sources belong to the channel, not the owner, so growth continues uninterrupted across a handoff.
+
+### Access Modes
+
+Every party is created in `friends_of_friends` mode (the `parties.access_mode` default). The owner can switch modes at any point via `/party_mode` (see Per-Channel Access Commands); the mode is stored on the `parties` row and survives a restart.
+
+- **`friends_of_friends`** — the owner's friends have default access, and any non-owner member who stays connected long enough becomes a scan source whose own friends also gain access. See Friends-of-Friends Growth.
+- **`friends_only`** — only the owner's friends have default access. No scan sources are tracked; any active `party_sources` rows are dropped when switching into this mode.
+- **`invite_only`** — the owner's friend list confers no default access at all. Only the owner and users with an explicit `/party_allow` override (see Per-Channel Access Commands) can see or join the channel. Like `friends_only`, no scan sources are tracked.
+
+Switching *out of* `friends_of_friends` drops all current `party_sources` rows for the channel and cancels their pending join/leave timers — their contribution stops applying immediately, per the Ownership Rewrite/Access Resolution rules for the new mode. Switching *into* `friends_of_friends` arms a fresh join-maturation timer for every non-owner member currently in the channel, so growth resumes without requiring a leave/rejoin. In every case `party_overrides` rows are untouched by a mode switch — manual `/party_allow`/`/party_deny` decisions persist across mode changes.
 
 ### Friends-of-Friends Growth
 
-Every party is created in `friends_of_friends` access mode (the `parties.access_mode` default). In this mode, any non-owner member present in the party channel for a while becomes an active scan source, and that source's own friends gain access to the channel — access grows transitively, not just from the owner's friend list. Access is crawled live from every current source rather than materialized into a stored allow-list, so it naturally stacks as more members pass through, and self-corrects if a source's friend list changes before the next rebuild.
+In `friends_of_friends` mode, any non-owner member present in the party channel for a while becomes an active scan source, and that source's own friends gain access to the channel — access grows transitively, not just from the owner's friend list. Access is crawled live from every current source rather than materialized into a stored allow-list, so it naturally stacks as more members pass through, and self-corrects if a source's friend list changes before the next rebuild.
 
 Mechanic:
-1. **Join scan.** When a non-owner member joins a `friends_of_friends` party and remains connected for 20 seconds (`friendOfFriendJoinDelay`), they become an active source: a `party_sources` row is inserted for `(channel_id, user_id)`, and the channel's overwrites are rebuilt to include that source's friends (see Ownership Rewrite step 4). If the member leaves before the delay elapses, no row is ever inserted.
-2. **Leave revoke.** When an active source leaves the channel and remains absent for 30 seconds (`friendOfFriendLeaveGrace`), their `party_sources` row is deleted and the overwrites are rebuilt. Because the allow-set is a live union across all current sources, a friend who is also vouched for by another still-present source keeps their access — only the departing source's own unique contribution is lost. If the member rejoins before the grace period elapses, the pending removal is cancelled and nothing changes.
-3. **Deny still wins.** A `/vc_deny` override on a would-be grantee is applied last, exactly as in Ownership Rewrite, so it continues to block them even after a scan fires in their favor.
+1. **Join scan.** When a non-owner member joins a `friends_of_friends` party and remains connected for 5 seconds (`friendOfFriendJoinDelay`), they become an active source: a `party_sources` row is inserted for `(channel_id, user_id)`, and the channel's overwrites are rebuilt to include that source's friends (see Ownership Rewrite step 4). If the member leaves before the delay elapses, no row is ever inserted.
+2. **Leave revoke.** When an active source leaves the channel and remains absent for 15 seconds (`friendOfFriendLeaveGrace`), their `party_sources` row is deleted and the overwrites are rebuilt. Because the allow-set is a live union across all current sources, a friend who is also vouched for by another still-present source keeps their access — only the departing source's own unique contribution is lost. If the member rejoins before the grace period elapses, the pending removal is cancelled and nothing changes.
+3. **Deny still wins.** A `/party_deny` override on a would-be grantee is applied last, exactly as in Ownership Rewrite, so it continues to block them even after a scan fires in their favor.
 4. **Unfriending drops access on the next rebuild.** Because the allow-set is crawled live rather than stored, a source unfriending someone removes that person from the allow-set the next time the channel's overwrites are rebuilt (handoff, another scan event, or a manual override) — no explicit revocation step is needed.
 
-The join/leave timers are in-memory, keyed per `(channel_id, user_id)`, and are not restored across a bot restart. The startup sweep reconciles this for each `friends_of_friends` party against current channel membership: any `party_sources` row whose user is no longer present is pruned (their leave timer never got to fire, and without this fix they would keep granting access indefinitely) and the channel's overwrites are rebuilt if any were pruned; any present non-owner member who is not already a source gets a fresh join-maturation timer (any partial progress toward the 20-second delay from before the restart is lost, the same accepted cost already applied to the handoff and cleanup timers). `party_sources` rows for members who stayed connected across the restart are left untouched and keep contributing without interruption.
+The join/leave timers are in-memory, keyed per `(channel_id, user_id)`, and are not restored across a bot restart. The startup sweep reconciles this for each `friends_of_friends` party against current channel membership: any `party_sources` row whose user is no longer present is pruned (their leave timer never got to fire, and without this fix they would keep granting access indefinitely) and the channel's overwrites are rebuilt if any were pruned; any present non-owner member who is not already a source gets a fresh join-maturation timer (any partial progress toward the 5-second delay from before the restart is lost, the same accepted cost already applied to the handoff and cleanup timers). `party_sources` rows for members who stayed connected across the restart are left untouched and keep contributing without interruption.
 
 ### Cleanup
 
@@ -204,26 +219,31 @@ Deleting the party channel deletes all its overwrites, clearing that portion of 
 
 Both commands are owner-only. Both act on the party channel the caller is in. If the command is run outside an active party channel, or by a non-owner, it is refused with an ephemeral error.
 
-`/vc_allow @user`
+`/party_allow @user`
 Set overwrite on `@user` for the current party channel: allow `VIEW_CHANNEL`, allow `CONNECT`. Upsert `(channel_id, user.id, 'allow')` into `party_overrides`. Overrides all defaults, including a block. Does not modify the relationship graph. Reply is public.
 
-`/vc_deny @user`
+`/party_deny @user`
 Set overwrite on `@user` for the current party channel: deny `VIEW_CHANNEL`, deny `CONNECT`. Upsert `(channel_id, user.id, 'deny')` into `party_overrides`. Overrides all defaults, including the creation-time friend whitelist. Does not modify the relationship graph. Reply is ephemeral.
 
-`/vc_deny` does not disconnect a user who is currently connected. The deny applies to future connection attempts only; a connected user remains until they leave on their own, after which they cannot rejoin.
+`/party_deny` does not disconnect a user who is currently connected. The deny applies to future connection attempts only; a connected user remains until they leave on their own, after which they cannot rejoin.
 
 Both take a single user. Multi-user targets are out of scope for v1.
+
+`/party_mode [mode]`
+Owner-only, acts on the party channel the caller is in, same refusal rules as `/party_allow`/`/party_deny`. `mode` is an optional choice of `friends_of_friends` / `friends_only` / `invite_only` (see Access Modes):
+- If `mode` is given, the channel's `access_mode` is updated and its overwrites are rewritten immediately to match the new mode. Reply is public.
+- If `mode` is omitted, the bot replies ephemerally with three buttons, one per mode; clicking one applies that mode the same way the slash-command argument would, and edits the ephemeral message in place to confirm.
 
 ## Access Resolution
 
 For a given party channel, effective access to a user is:
 
-1. If a `/vc_deny` override exists for the user, they are denied. (Deny override wins.)
-2. Else if a `/vc_allow` override exists for the user, they are allowed.
-3. Else if the user has a friend overwrite — either a direct friend of the owner (creation-time, or rewritten at handoff), or a friend of an active `friends_of_friends` scan source (see Friends-of-Friends Growth) — they are allowed.
+1. If a `/party_deny` override exists for the user, they are denied. (Deny override wins.)
+2. Else if a `/party_allow` override exists for the user, they are allowed.
+3. Else if the channel is in `friends_of_friends` or `friends_only` mode and the user has a friend overwrite — either a direct friend of the owner (creation-time, or rewritten at handoff), or (in `friends_of_friends` mode only) a friend of an active scan source (see Friends-of-Friends Growth) — they are allowed. In `invite_only` mode this step is skipped entirely; the owner's friend list confers no access.
 4. Else they are denied by the `@everyone` deny.
 
-This ordering is enforced by Discord's native overwrite model. There is one member-overwrite slot per user per channel; `/vc_allow` and `/vc_deny` write to the same slot, so the most recent owner action wins. No custom resolution logic is required beyond writing the correct overwrite.
+This ordering is enforced by Discord's native overwrite model. There is one member-overwrite slot per user per channel; `/party_allow` and `/party_deny` write to the same slot, so the most recent owner action wins. No custom resolution logic is required beyond writing the correct overwrite.
 
 Per-channel overrides are local to the channel. They are stored in `party_overrides` for the channel's lifetime and are discarded when the channel is deleted.
 
@@ -251,7 +271,7 @@ Upsert `('party_category_id', category.id)` in `config`. Sets the category new p
 
 Re-configuring affects future parties only. Party channels already spawned are independent of the watch channel at that point and are unaffected. They run out their normal lifecycle (ownership handoff, empty-cleanup) regardless of what the watch channel is later set to.
 
-If `watch_channel_id` is unset at bot startup, log the condition and disable party creation (do not silently watch nothing). Other commands (`/friend_add`, `/block`, etc.) remain functional.
+If `watch_channel_id` is unset at bot startup, log the condition and disable party creation (do not silently watch nothing). Other commands (`/friend_add`, `/enemy_add`, etc.) remain functional.
 
 ## Command Summary
 
@@ -259,10 +279,13 @@ If `watch_channel_id` is unset at bot startup, log the condition and disable par
 |---|---|---|---|
 | `/friend_add @user` | any | global | upsert friend edge |
 | `/friend_remove @user` | any | global | delete friend edge |
-| `/block @user` | any | global | upsert block edge |
-| `/unblock @user` | any | global | delete block edge |
-| `/vc_allow @user` | party owner | current channel | allow overwrite + `party_overrides` row, overrides block |
-| `/vc_deny @user` | party owner | current channel | deny overwrite + `party_overrides` row, overrides friend |
+| `/friend_list` | any | global | list caller's friend edges |
+| `/enemy_add @user` | any | global | upsert block edge |
+| `/enemy_remove @user` | any | global | delete block edge |
+| `/enemy_list` | any | global | list caller's block edges |
+| `/party_allow @user` | party owner | current channel | allow overwrite + `party_overrides` row, overrides block |
+| `/party_deny @user` | party owner | current channel | deny overwrite + `party_overrides` row, overrides friend |
+| `/party_mode [mode]` | party owner | current channel | set `access_mode`, rewrite overwrites; omitted mode prompts buttons |
 | `/configure watch_channel #channel` | Manage Guild | guild | set the party-trigger channel |
 | `/configure category <category>` | Manage Guild | guild | set the category new party channels spawn under |
 | `/help` | any | ephemeral | list available commands |

@@ -11,7 +11,7 @@ import (
 
 // PartyChannelPermissions is the pair of permissions the whole overwrite
 // model turns on or off: seeing and joining the channel. Exported because
-// the vc_allow/vc_deny commands write the same pair to a single overwrite.
+// the party_allow/party_deny commands write the same pair to a single overwrite.
 const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect
 
 // buildCreationOverwrites returns the full overwrite set for a new party

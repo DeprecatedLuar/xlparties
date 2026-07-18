@@ -2,10 +2,10 @@ package commands
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/messages"
 	"xlparties/internal/store"
 )
@@ -18,7 +18,7 @@ func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 
 	alreadyFriend, err := st.IsFriend(caller, target)
 	if err != nil {
-		log.Printf("friend_add: %v", err)
+		logger.Error("friend_add", "error", err)
 		respondEphemeral(s, i, messages.FailedAddFriend)
 		return
 	}
@@ -28,7 +28,7 @@ func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 	}
 
 	if err := st.UpsertFriend(caller, target); err != nil {
-		log.Printf("friend_add: %v", err)
+		logger.Error("friend_add", "error", err)
 		respondEphemeral(s, i, messages.FailedAddFriend)
 		return
 	}
@@ -42,7 +42,7 @@ func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 func notifyFriendAdded(s *discordgo.Session, guildID string, caller, target int64) {
 	channel, err := s.UserChannelCreate(fmt.Sprint(target))
 	if err != nil {
-		log.Printf("friend_add: could not open DM with %d: %v", target, err)
+		logger.Error("friend_add: could not open DM", "target", target, "error", err)
 		return
 	}
 
@@ -53,6 +53,6 @@ func notifyFriendAdded(s *discordgo.Session, guildID string, caller, target int6
 
 	msg := fmt.Sprintf(messages.FriendAddedNotif, caller, guildName, caller)
 	if _, err := s.ChannelMessageSend(channel.ID, msg); err != nil {
-		log.Printf("friend_add: could not DM %d: %v", target, err)
+		logger.Error("friend_add: could not DM", "target", target, "error", err)
 	}
 }

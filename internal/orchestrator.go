@@ -3,7 +3,6 @@ package internal
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +12,7 @@ import (
 
 	"xlparties/internal/commands"
 	"xlparties/internal/config"
+	"xlparties/internal/logger"
 	"xlparties/internal/party"
 	"xlparties/internal/selfheal"
 	"xlparties/internal/store"
@@ -47,25 +47,26 @@ func Run() error {
 	defer session.Close()
 
 	if err := checkRequiredPermissions(session, guildID); err != nil {
-		log.Printf("permission check failed: %v", err)
-	}
-
-	if _, err := commands.Register(session, guildID, st); err != nil {
-		return fmt.Errorf("register commands: %w", err)
+		logger.Error("permission check failed", "error", err)
 	}
 
 	partyManager := party.NewManager(session, st, guildID,
 		time.Duration(cfg.EmptyCleanupSeconds)*time.Second,
 		time.Duration(cfg.OwnerAbsenceHandoffSeconds)*time.Second,
 	)
+
+	if _, err := commands.Register(session, guildID, st, partyManager); err != nil {
+		return fmt.Errorf("register commands: %w", err)
+	}
+
 	partyManager.Register()
-	partyManager.WarnIfWatchChannelUnset()
+	partyManager.WarnIfUnconfigured()
 	partyManager.StartupSweep()
 	selfheal.Run(partyManager)
 
-	log.Printf("xlparties is running (guild=%s)", guildID)
+	logger.Info("xlparties is running", "guild", guildID)
 	waitForShutdownSignal()
-	log.Println("shutting down")
+	logger.Info("shutting down")
 	return nil
 }
 

@@ -9,10 +9,13 @@ import (
 const helpText = `**xlparties commands**
 ` + "`/friend_add user`" + ` — add a friend, granting them default access to your party
 ` + "`/friend_remove user`" + ` — remove a friend
-` + "`/block user`" + ` — block a user from your party by default
-` + "`/unblock user`" + ` — unblock a user
-` + "`/vc_allow user`" + ` — allow a user into your current party (overrides defaults)
-` + "`/vc_deny user`" + ` — deny a user from your current party (overrides defaults)
+` + "`/friend_list`" + ` — list your friends
+` + "`/enemy_add user`" + ` — add an enemy, blocking them from your party by default
+` + "`/enemy_remove user`" + ` — remove an enemy
+` + "`/enemy_list`" + ` — list your enemies
+` + "`/party_allow user`" + ` — allow a user into your current party (overrides defaults)
+` + "`/party_deny user`" + ` — deny a user from your current party (overrides defaults)
+` + "`/party_mode [mode]`" + ` — view or set your current party's access mode (friends of friends / friends only / invite only)
 ` + "`/configure`" + ` — (admin) set the watch channel and party category
 ` + "`/help`" + ` — show this message
 

@@ -3,13 +3,12 @@
 package main
 
 import (
-	"log"
-
 	"xlparties/internal"
+	"xlparties/internal/logger"
 )
 
 func main() {
 	if err := internal.Run(); err != nil {
-		log.Fatal(err)
+		logger.Fatal("xlparties exited", "error", err)
 	}
 }

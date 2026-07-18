@@ -1,9 +1,9 @@
 package internal
 
 import (
-	"log"
-
 	"github.com/bwmarrin/discordgo"
+
+	"xlparties/internal/logger"
 )
 
 const requiredPermissions = discordgo.PermissionManageChannels |
@@ -49,20 +49,19 @@ func checkRequiredPermissions(s *discordgo.Session, guildID string) error {
 	}
 
 	if perms&discordgo.PermissionAdministrator != 0 {
-		log.Println("bot has Administrator — all required permissions present")
+		logger.Info("bot has Administrator — all required permissions present")
 		return nil
 	}
 
 	missing := requiredPermissions &^ perms
 	if missing == 0 {
-		log.Println("all required permissions present")
+		logger.Info("all required permissions present")
 		return nil
 	}
 
-	log.Println("WARNING: bot is missing required permissions:")
 	for bit, name := range permissionNames {
 		if missing&bit != 0 {
-			log.Printf("  MISSING: %s", name)
+			logger.Warn("bot is missing required permission", "permission", name)
 		}
 	}
 	return nil

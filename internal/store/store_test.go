@@ -142,3 +142,29 @@ func TestPartySources(t *testing.T) {
 		t.Fatalf("SourceIDsForChannel after RemoveSourcesForChannel = %v, want empty", ids)
 	}
 }
+
+func TestUpdateAccessMode(t *testing.T) {
+	s := openTestStore(t)
+
+	const channel, owner = int64(9001), int64(1001)
+	if err := s.InsertParty(channel, owner); err != nil {
+		t.Fatalf("InsertParty: %v", err)
+	}
+
+	for _, mode := range []string{AccessModeFriendsOnly, AccessModeInviteOnly, AccessModeFriendsOfFriends} {
+		if err := s.UpdateAccessMode(channel, mode); err != nil {
+			t.Fatalf("UpdateAccessMode(%q): %v", mode, err)
+		}
+		party, ok, err := s.PartyByChannel(channel)
+		if err != nil {
+			t.Fatalf("PartyByChannel: %v", err)
+		}
+		if !ok || party.AccessMode != mode {
+			t.Fatalf("access_mode after UpdateAccessMode(%q) = %q", mode, party.AccessMode)
+		}
+	}
+
+	if err := s.UpdateAccessMode(channel, "not_a_real_mode"); err == nil {
+		t.Fatal("UpdateAccessMode with an invalid mode should fail the access_mode CHECK constraint")
+	}
+}

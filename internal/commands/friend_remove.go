@@ -2,10 +2,10 @@ package commands
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/bwmarrin/discordgo"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/messages"
 	"xlparties/internal/store"
 )
@@ -16,7 +16,7 @@ func handleFriendRemove(s *discordgo.Session, i *discordgo.InteractionCreate, st
 		return
 	}
 	if err := st.RemoveFriend(caller, target); err != nil {
-		log.Printf("friend_remove: %v", err)
+		logger.Error("friend_remove", "error", err)
 		respondEphemeral(s, i, messages.FailedRemoveFriend)
 		return
 	}

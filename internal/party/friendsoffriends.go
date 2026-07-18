@@ -1,22 +1,22 @@
 package party
 
 import (
-	"log"
 	"slices"
 	"strconv"
 	"time"
 
+	"xlparties/internal/logger"
 	"xlparties/internal/store"
 )
 
 // friendOfFriendJoinDelay is how long a non-owner member must stay present in
 // a friends_of_friends party before they become an active scan source (their
 // friends gain access).
-const friendOfFriendJoinDelay = 20 * time.Second
+const friendOfFriendJoinDelay = 5 * time.Second
 
 // friendOfFriendLeaveGrace is how long an active source's contribution
 // survives after they leave, before it drops out of the crawl.
-const friendOfFriendLeaveGrace = 30 * time.Second
+const friendOfFriendLeaveGrace = 15 * time.Second
 
 // startFoFJoinTimer arms the maturation timer for (channelID, userID) if one
 // isn't already running.
@@ -110,7 +110,7 @@ func (m *Manager) runFoFJoinScan(channelID, userID int64) {
 
 	party, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
-		log.Printf("fof join scan: load party %d: %v", channelID, err)
+		logger.Error("fof join scan: load party", "channel", channelID, "error", err)
 		return
 	}
 	if !exists || party.AccessMode != store.AccessModeFriendsOfFriends || party.OwnerID == userID {
@@ -121,14 +121,14 @@ func (m *Manager) runFoFJoinScan(channelID, userID int64) {
 	}
 
 	if err := m.store.AddSource(channelID, userID); err != nil {
-		log.Printf("fof join scan: add source (%d,%d): %v", channelID, userID, err)
+		logger.Error("fof join scan: add source", "channel", channelID, "user", userID, "error", err)
 		return
 	}
 	if err := m.rewriteOverwrites(channelID, party.OwnerID); err != nil {
-		log.Printf("fof join scan: rewrite overwrites for channel %d: %v", channelID, err)
+		logger.Error("fof join scan: rewrite overwrites", "channel", channelID, "error", err)
 		return
 	}
-	log.Printf("fof join scan: added source channel=%d user=%d", channelID, userID)
+	logger.Info("fof join scan: added source", "channel", channelID, "user", userID)
 }
 
 // runFoFLeaveRevoke fires when a source's leave-grace timer elapses. It
@@ -147,7 +147,7 @@ func (m *Manager) runFoFLeaveRevoke(channelID, userID int64) {
 
 	party, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
-		log.Printf("fof leave revoke: load party %d: %v", channelID, err)
+		logger.Error("fof leave revoke: load party", "channel", channelID, "error", err)
 		return
 	}
 	if !exists || party.AccessMode != store.AccessModeFriendsOfFriends {
@@ -158,14 +158,14 @@ func (m *Manager) runFoFLeaveRevoke(channelID, userID int64) {
 	}
 
 	if err := m.store.RemoveSource(channelID, userID); err != nil {
-		log.Printf("fof leave revoke: remove source (%d,%d): %v", channelID, userID, err)
+		logger.Error("fof leave revoke: remove source", "channel", channelID, "user", userID, "error", err)
 		return
 	}
 	if err := m.rewriteOverwrites(channelID, party.OwnerID); err != nil {
-		log.Printf("fof leave revoke: rewrite overwrites for channel %d: %v", channelID, err)
+		logger.Error("fof leave revoke: rewrite overwrites", "channel", channelID, "error", err)
 		return
 	}
-	log.Printf("fof leave revoke: removed source channel=%d user=%d", channelID, userID)
+	logger.Info("fof leave revoke: removed source", "channel", channelID, "user", userID)
 }
 
 // reconcileFoFSources resyncs a friends_of_friends party's active scan
@@ -185,7 +185,7 @@ func (m *Manager) reconcileFoFSources(p store.Party, members []string) {
 
 	sourceIDs, err := m.store.SourceIDsForChannel(p.ChannelID)
 	if err != nil {
-		log.Printf("reconcile fof sources: load sources for channel %d: %v", p.ChannelID, err)
+		logger.Error("reconcile fof sources: load sources for channel", "channel", p.ChannelID, "error", err)
 		return
 	}
 
@@ -195,22 +195,22 @@ func (m *Manager) reconcileFoFSources(p store.Party, members []string) {
 			continue
 		}
 		if err := m.store.RemoveSource(p.ChannelID, sourceID); err != nil {
-			log.Printf("reconcile fof sources: remove stale source (%d,%d): %v", p.ChannelID, sourceID, err)
+			logger.Error("reconcile fof sources: remove stale source", "channel", p.ChannelID, "user", sourceID, "error", err)
 			continue
 		}
 		pruned = true
-		log.Printf("reconcile fof sources: pruned stale source channel=%d user=%d", p.ChannelID, sourceID)
+		logger.Info("reconcile fof sources: pruned stale source", "channel", p.ChannelID, "user", sourceID)
 	}
 	if pruned {
 		if err := m.rewriteOverwrites(p.ChannelID, p.OwnerID); err != nil {
-			log.Printf("reconcile fof sources: rewrite overwrites for channel %d: %v", p.ChannelID, err)
+			logger.Error("reconcile fof sources: rewrite overwrites", "channel", p.ChannelID, "error", err)
 		}
 	}
 
 	for _, member := range members {
 		memberID, err := strconv.ParseInt(member, 10, 64)
 		if err != nil {
-			log.Printf("reconcile fof sources: parse member id %q: %v", member, err)
+			logger.Error("reconcile fof sources: parse member id", "member_id", member, "error", err)
 			continue
 		}
 		if memberID == p.OwnerID || slices.Contains(sourceIDs, memberID) {

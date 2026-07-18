@@ -25,6 +25,7 @@ const (
 const (
 	AccessModeFriendsOfFriends = "friends_of_friends"
 	AccessModeFriendsOnly      = "friends_only"
+	AccessModeInviteOnly       = "invite_only"
 )
 
 // Store wraps the database connection and exposes all query methods.
@@ -158,11 +159,20 @@ func (s *Store) IsFriend(granterID, granteeID int64) (bool, error) {
 
 // FriendIDs returns the ids of every user ownerID has marked as a friend.
 func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "friend")
+}
+
+// BlockIDs returns the ids of every user ownerID has blocked.
+func (s *Store) BlockIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "block")
+}
+
+func (s *Store) relationshipIDs(granterID int64, relationType string) ([]int64, error) {
 	rows, err := s.db.Query(`
-		SELECT grantee_id FROM relationships WHERE granter_id = ? AND relation_type = 'friend'
-	`, ownerID)
+		SELECT grantee_id FROM relationships WHERE granter_id = ? AND relation_type = ?
+	`, granterID, relationType)
 	if err != nil {
-		return nil, fmt.Errorf("query friend ids for %d: %w", ownerID, err)
+		return nil, fmt.Errorf("query %s ids for %d: %w", relationType, granterID, err)
 	}
 	defer rows.Close()
 
@@ -170,7 +180,7 @@ func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan friend id: %w", err)
+			return nil, fmt.Errorf("scan %s id: %w", relationType, err)
 		}
 		ids = append(ids, id)
 	}
@@ -276,9 +286,20 @@ func (s *Store) UpdateOwner(channelID, newOwnerID int64) error {
 	return nil
 }
 
+// UpdateAccessMode changes channelID's access_mode, on /party_mode. The
+// CHECK constraint on the column is the only validation of mode; callers are
+// expected to pass one of the AccessMode* constants.
+func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
+	_, err := s.db.Exec(`UPDATE parties SET access_mode = ? WHERE channel_id = ?`, mode, channelID)
+	if err != nil {
+		return fmt.Errorf("update access_mode for party %d: %w", channelID, err)
+	}
+	return nil
+}
+
 // --- party_overrides ---
 
-// UpsertOverride records a manual /vc_allow or /vc_deny decision.
+// UpsertOverride records a manual /party_allow or /party_deny decision.
 func (s *Store) UpsertOverride(channelID, userID int64, overrideType string) error {
 	_, err := s.db.Exec(`
 		INSERT INTO party_overrides (channel_id, user_id, type) VALUES (?, ?, ?)
