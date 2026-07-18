@@ -87,7 +87,7 @@ func TestBuildRewriteOverwritesOverrideWinsOverSourceFriend(t *testing.T) {
 	for _, ow := range overwrites {
 		if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == formatID(sourceFriend) {
 			if ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
-				t.Fatalf("expected party_deny override to win over source-friend grant, got overwrite %+v", ow)
+				t.Fatalf("expected party_block override to win over source-friend grant, got overwrite %+v", ow)
 			}
 			return
 		}

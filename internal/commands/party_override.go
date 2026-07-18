@@ -21,7 +21,7 @@ func handlePartyAllow(s *discordgo.Session, i *discordgo.InteractionCreate, st *
 	handlePartyOverride(s, i, st, overrideTypeAllow)
 }
 
-func handlePartyDeny(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+func handlePartyBlock(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
 	handlePartyOverride(s, i, st, overrideTypeDeny)
 }
 
@@ -59,15 +59,20 @@ func handlePartyOverride(s *discordgo.Session, i *discordgo.InteractionCreate, s
 	} else {
 		deny = party.PartyChannelPermissions
 	}
+	actionVerb := overrideType
+	if actionVerb == overrideTypeDeny {
+		actionVerb = "block"
+	}
+
 	targetID := strconv.FormatInt(target, 10)
 	if err := s.ChannelPermissionSet(i.ChannelID, targetID, discordgo.PermissionOverwriteTypeMember, allow, deny); err != nil {
 		logger.Error("party override: set channel permission", "override_type", overrideType, "error", err)
-		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, overrideType))
+		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, actionVerb))
 		return
 	}
 	if err := st.UpsertOverride(channelID, target, overrideType); err != nil {
 		logger.Error("party override: upsert override", "override_type", overrideType, "error", err)
-		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, overrideType))
+		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, actionVerb))
 		return
 	}
 

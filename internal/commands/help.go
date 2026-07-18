@@ -14,7 +14,9 @@ const helpText = `**xlparties commands**
 ` + "`/enemy_remove user`" + ` — remove an enemy
 ` + "`/enemy_list`" + ` — list your enemies
 ` + "`/party_allow user`" + ` — allow a user into your current party (overrides defaults)
-` + "`/party_deny user`" + ` — deny a user from your current party (overrides defaults)
+` + "`/party_block user`" + ` — block a user from your current party (overrides defaults)
+` + "`/party_kick user`" + ` — kick a user from your current party voice channel
+` + "`/party_ban user`" + ` — ban a user from your current party (deny access + kick if present)
 ` + "`/party_mode [mode]`" + ` — view or set your current party's access mode (friends of friends / friends only / invite only)
 ` + "`/configure`" + ` — (admin) set the watch channel and party category
 ` + "`/help`" + ` — show this message

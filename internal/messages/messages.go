@@ -10,7 +10,7 @@ const (
 	CannotTargetSelf    = "you cannot target yourself"
 )
 
-// /party_allow, /party_deny
+// /party_allow, /party_block
 const (
 	FailedResolveChannel = "failed to resolve the current channel"
 	FailedLookupParty    = "failed to look up this party"
@@ -19,6 +19,19 @@ const (
 	FailedOverrideUser   = "failed to %s user"
 	UserAllowed          = "<@%d> is now allowed in this party"
 	UserDenied           = "<@%d> is now exiled from this party. (mwahaha)"
+)
+
+// /party_kick
+const (
+	FailedKickUser = "failed to kick user"
+	UserKicked     = "<@%d> has been kicked from this party."
+	UserNotPresent = "User <@%d> is not in this voice channel."
+)
+
+// /party_ban
+const (
+	FailedBanUser = "failed to ban user"
+	UserBanned    = "<@%d> has been banned and kicked from this party."
 )
 
 // /party_mode
@@ -76,3 +89,7 @@ const (
 
 // party ownership handoff notice, posted by internal/party.
 const NewOwner = "Congratulations <@%d>! You have been elevated to the owner of this party."
+
+// party creation notice, posted by internal/party.
+const PartyCreated = "## Salutations <@%d>.\nThis channel is your designated party venue, currently operating in \"Friends of Friends\" mode.\n\nBe advised of the following:\n* Your friends are permitted to see and join this channel automatically.\n* Access rights may be adjusted using `/party_mode` (you can limit the scope to friends-only _or_ make it invite-only if you hate your friends).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* For additional instruction, refer to `/help`."
+

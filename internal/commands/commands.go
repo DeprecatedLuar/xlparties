@@ -50,9 +50,19 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to allow")},
 	},
 	{
-		Name:        "party_deny",
-		Description: "Deny a user from your current party, overriding any default",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to deny")},
+		Name:        "party_block",
+		Description: "Block a user from your current party, overriding any default",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to block")},
+	},
+	{
+		Name:        "party_kick",
+		Description: "Kick a user from your current party voice channel",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to kick")},
+	},
+	{
+		Name:        "party_ban",
+		Description: "Ban a user from your current party (denies access and kicks them if present)",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to ban")},
 	},
 	{
 		Name:        "party_mode",
@@ -130,7 +140,9 @@ var handlers = map[string]handlerFunc{
 	"enemy_remove":  handleEnemyRemove,
 	"enemy_list":    handleEnemyList,
 	"party_allow":   handlePartyAllow,
-	"party_deny":    handlePartyDeny,
+	"party_block":   handlePartyBlock,
+	"party_kick":    handlePartyKick,
+	"party_ban":     handlePartyBan,
 	"configure":     handleConfigure,
 	"help":          handleHelp,
 }

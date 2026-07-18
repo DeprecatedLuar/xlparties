@@ -299,7 +299,7 @@ func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
 
 // --- party_overrides ---
 
-// UpsertOverride records a manual /party_allow or /party_deny decision.
+// UpsertOverride records a manual /party_allow or /party_block decision.
 func (s *Store) UpsertOverride(channelID, userID int64, overrideType string) error {
 	_, err := s.db.Exec(`
 		INSERT INTO party_overrides (channel_id, user_id, type) VALUES (?, ?, ?)

@@ -8,6 +8,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"xlparties/internal/logger"
+	"xlparties/internal/messages"
 	"xlparties/internal/naming"
 	"xlparties/internal/store"
 )
@@ -76,6 +77,11 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	ownerIDStr := strconv.FormatInt(ownerID, 10)
 	if err := m.session.GuildMemberMove(m.guildID, ownerIDStr, &channel.ID); err != nil {
 		return fmt.Errorf("move owner %d into party channel %d: %w", ownerID, channelID, err)
+	}
+
+	// Send salutations message to the new channel's text chat
+	if _, err := m.session.ChannelMessageSend(channel.ID, fmt.Sprintf(messages.PartyCreated, ownerID)); err != nil {
+		logger.Error("party creation: post salutations", "channel", channelID, "error", err)
 	}
 
 	logger.Info("party created", "channel", channelID, "owner", ownerID, "friends", len(friendIDs))
