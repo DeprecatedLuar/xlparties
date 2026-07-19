@@ -56,7 +56,7 @@ const (
 	FailedAddFriend  = "failed to add friend"
 	AlreadyFriend    = "<@%d> seems to already be your acquaintance"
 	FriendAdded      = "Now you and <@%d> shall be besties. Yipee"
-	FriendAddedNotif = " ## Salutations Hooman.\nIt seems <@%d> added you as a friend in **%s**.\nI would never do that _but_ you can use `/friend_add` (in the server) and pick <@%d> as the user to add them back"
+	FriendAddedNotif = " ## %s\nIt seems <@%d> added you as a friend in **%s**.\nI would never do that _but_ you can use `/friend_add` (in the server) and pick <@%d> as the user to add them back"
 )
 
 // /friend_remove
@@ -100,8 +100,8 @@ const (
 	PartyInviteSent               = "<@%d> has been invited to this party"
 	PartyInviteAlreadyHasAccess   = "<@%d> already has access to this party — sent them a reminder instead"
 	PartyInviteRefused            = "<@%d> can't be invited to this party"
-	PartyInviteDMAlreadyHasAccess = "## Salutations Hooman.\n<@%d> tried to invite you to their party in this server, but you already have access - hop into their party voice channel whenever you like."
-	PartyInviteDMBody             = "## Salutations Hooman.\n<@%d> invited you to their party in this server. Here's your one-click join link (works once, and only until you use it or it expires):\n%s"
+	PartyInviteDMAlreadyHasAccess = "## %s\n<@%d> tried to invite you to their party in this server, but you already have access - hop into their party voice channel whenever you like."
+	PartyInviteDMBody             = "## %s\n<@%d> formally invites you to their party, **%s**, on *%s*:\n%s"
 )
 
 // party ownership handoff notice, posted by internal/party.

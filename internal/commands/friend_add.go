@@ -55,7 +55,7 @@ func notifyFriendAdded(s *discordgo.Session, guildID string, caller, target int6
 		guildName = guild.Name
 	}
 
-	msg := fmt.Sprintf(messages.FriendAddedNotif, caller, guildName, caller)
+	msg := fmt.Sprintf(messages.FriendAddedNotif, messages.RandomGreeting(), caller, guildName, caller)
 	if _, err := s.ChannelMessageSend(channel.ID, msg); err != nil {
 		logger.Error("friend_add: could not DM", "target", target, "error", err)
 	}
