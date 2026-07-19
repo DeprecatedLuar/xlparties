@@ -21,6 +21,7 @@ type Manager struct {
 
 	emptyCleanup        time.Duration
 	ownerAbsenceHandoff time.Duration
+	inviteExpiry        time.Duration
 
 	mu            sync.Mutex
 	handoffTimers map[int64]*time.Timer
@@ -30,21 +31,27 @@ type Manager struct {
 	// by channel id then member id. See friendsoffriends.go.
 	fofJoinTimers  map[int64]map[int64]*time.Timer
 	fofLeaveTimers map[int64]map[int64]*time.Timer
+
+	// inviteTimers drives /party_invite expiry: keyed by channel id then
+	// invited member id. See invite.go.
+	inviteTimers map[int64]map[int64]*time.Timer
 }
 
 // NewManager constructs a Manager. Call Register to start listening for the
 // events that drive the lifecycle.
-func NewManager(session *discordgo.Session, st *store.Store, guildID string, emptyCleanup, ownerAbsenceHandoff time.Duration) *Manager {
+func NewManager(session *discordgo.Session, st *store.Store, guildID string, emptyCleanup, ownerAbsenceHandoff, inviteExpiry time.Duration) *Manager {
 	return &Manager{
 		session:             session,
 		store:               st,
 		guildID:             guildID,
 		emptyCleanup:        emptyCleanup,
 		ownerAbsenceHandoff: ownerAbsenceHandoff,
+		inviteExpiry:        inviteExpiry,
 		handoffTimers:       make(map[int64]*time.Timer),
 		cleanupTimers:       make(map[int64]*time.Timer),
 		fofJoinTimers:       make(map[int64]map[int64]*time.Timer),
 		fofLeaveTimers:      make(map[int64]map[int64]*time.Timer),
+		inviteTimers:        make(map[int64]map[int64]*time.Timer),
 	}
 }
 
@@ -123,12 +130,18 @@ func (m *Manager) onJoinChannel(channelID, userID string) {
 	m.cancelCleanupTimer(channelIDInt)
 	if strconv.FormatInt(party.OwnerID, 10) == userID {
 		m.cancelHandoffTimer(channelIDInt)
-	} else if party.AccessMode == store.AccessModeFriendsOfFriends {
-		userIDInt, err := strconv.ParseInt(userID, 10, 64)
-		if err != nil {
-			logger.Error("parse joining user id", "user_id", userID, "error", err)
-			return
-		}
+		return
+	}
+
+	userIDInt, err := strconv.ParseInt(userID, 10, 64)
+	if err != nil {
+		logger.Error("parse joining user id", "user_id", userID, "error", err)
+		return
+	}
+
+	m.consumePendingInvite(channelIDInt, userIDInt)
+
+	if party.AccessMode == store.AccessModeFriendsOfFriends {
 		m.cancelFoFLeaveTimer(channelIDInt, userIDInt)
 		m.startFoFJoinTimer(channelIDInt, userIDInt)
 	}

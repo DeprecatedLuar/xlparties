@@ -14,7 +14,7 @@ import (
 
 // handlePartyBan denies a user future access to the party channel and also
 // disconnects/kicks them immediately if they are currently connected to it.
-func handlePartyBan(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+func handlePartyBan(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
 	caller, target, ok := callerAndTarget(s, i)
 	if !ok {
 		return
@@ -56,6 +56,10 @@ func handlePartyBan(s *discordgo.Session, i *discordgo.InteractionCreate, st *st
 		logger.Error("party ban: upsert override", "error", err)
 		respondEphemeral(s, i, messages.FailedBanUser)
 		return
+	}
+
+	if err := pm.ClearPendingInvite(channelID, target); err != nil {
+		logger.Error("party ban: clear pending invite", "channel", channelID, "target", target, "error", err)
 	}
 
 	// 3. Eject them if they are currently connected

@@ -62,6 +62,10 @@ func (m *Manager) deleteParty(channelID int64) {
 	if err := m.store.RemoveSourcesForChannel(channelID); err != nil {
 		logger.Error("cleanup: remove sources for channel", "channel", channelID, "error", err)
 	}
+	m.cancelInviteTimersForChannel(channelID)
+	if err := m.store.RemoveInvitesForChannel(channelID); err != nil {
+		logger.Error("cleanup: remove invites for channel", "channel", channelID, "error", err)
+	}
 	if err := m.store.DeleteOverridesForChannel(channelID); err != nil {
 		logger.Error("cleanup: delete overrides for channel", "channel", channelID, "error", err)
 	}
@@ -143,7 +147,42 @@ func (m *Manager) StartupSweep() {
 		m.reconcileFoFSources(p, members)
 	}
 
+	m.reconcileInvites()
+
 	logger.Info("startup sweep complete", "parties_checked", len(parties))
+}
+
+// reconcileInvites resyncs pending party_invites against live Discord state
+// after a restart, since the expiry timers driving them are in-memory and
+// don't survive one: a channel that's gone gets its row dropped, an invite
+// already past its TTL is revoked immediately, and a still-live invite gets
+// a fresh timer armed for its remaining TTL.
+func (m *Manager) reconcileInvites() {
+	invites, err := m.store.AllInvites()
+	if err != nil {
+		logger.Error("startup sweep: load invites", "error", err)
+		return
+	}
+
+	now := time.Now().Unix()
+	for _, inv := range invites {
+		exists, err := m.channelExists(inv.ChannelID)
+		if err != nil {
+			logger.Error("startup sweep: check invite channel", "channel", inv.ChannelID, "user", inv.UserID, "error", err)
+			continue
+		}
+		if !exists {
+			if err := m.store.RemoveInvite(inv.ChannelID, inv.UserID); err != nil {
+				logger.Error("startup sweep: remove invite for orphan channel", "channel", inv.ChannelID, "user", inv.UserID, "error", err)
+			}
+			continue
+		}
+		if inv.ExpiresAt <= now {
+			m.revokeInvite(inv.ChannelID, inv.UserID)
+			continue
+		}
+		m.startInviteExpiryTimer(inv.ChannelID, inv.UserID, time.Duration(inv.ExpiresAt-now)*time.Second)
+	}
 }
 
 // SweepOrphanChannels reports (but does not delete) voice channels sitting

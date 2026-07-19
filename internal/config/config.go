@@ -15,6 +15,7 @@ import (
 const (
 	defaultEmptyCleanupSeconds        = 30
 	defaultOwnerAbsenceHandoffSeconds = 60
+	defaultInviteExpirySeconds        = 1800
 
 	appDataDirName = "xlparties"
 	dbFileName     = "xlparties.db"
@@ -28,6 +29,7 @@ type Config struct {
 	DBPath                     string
 	EmptyCleanupSeconds        int
 	OwnerAbsenceHandoffSeconds int
+	InviteExpirySeconds        int
 }
 
 // Load reads .env (if present) and the process environment into a Config.
@@ -67,6 +69,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	inviteExpiry, err := intEnvOrDefault("INVITE_EXPIRY_SECONDS", defaultInviteExpirySeconds)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		DiscordToken:               token,
 		DiscordAppID:               os.Getenv("DISCORD_APP_ID"),
@@ -74,6 +81,7 @@ func Load() (*Config, error) {
 		DBPath:                     dbPath,
 		EmptyCleanupSeconds:        emptyCleanup,
 		OwnerAbsenceHandoffSeconds: ownerAbsence,
+		InviteExpirySeconds:        inviteExpiry,
 	}, nil
 }
 

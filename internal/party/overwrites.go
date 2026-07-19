@@ -37,14 +37,16 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 // buildRewriteOverwrites returns the full overwrite set for a party channel
 // after an ownership handoff, per spec.md Ownership Rewrite: @everyone
 // denied, the new owner and their friends allowed, then each active
-// friends-of-friends source's own friends folded in, then each manual
-// party_overrides row applied last so it wins over every default.
+// friends-of-friends source's own friends folded in, then each pending
+// /party_invite grant, then each manual party_overrides row applied last so
+// it wins over every default (including a pending invite - a ban revokes an
+// outstanding invite too).
 //
 // sourceIDs are the channel's active friends-of-friends scan sources
 // (party_sources); their friend lists are crawled live rather than stored,
 // per spec.md's "store what cannot be derived" rule.
-func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, friendIDs []int64, sourceIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
-	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+1+len(overrides))
+func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
+	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+len(pendingInviteIDs)+1+len(overrides))
 	allow[ownerID] = true
 	for _, friendID := range friendIDs {
 		allow[friendID] = true
@@ -57,6 +59,9 @@ func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, frie
 		for _, friendID := range sourceFriendIDs {
 			allow[friendID] = true
 		}
+	}
+	for _, inviteeID := range pendingInviteIDs {
+		allow[inviteeID] = true
 	}
 	for _, o := range overrides {
 		allow[o.UserID] = o.Type == "allow"

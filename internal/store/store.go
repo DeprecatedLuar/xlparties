@@ -157,6 +157,21 @@ func (s *Store) IsFriend(granterID, granteeID int64) (bool, error) {
 	return exists, nil
 }
 
+// IsBlocked reports whether granterID has blocked granteeID.
+func (s *Store) IsBlocked(granterID, granteeID int64) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS(
+			SELECT 1 FROM relationships
+			WHERE granter_id = ? AND grantee_id = ? AND relation_type = 'block'
+		)
+	`, granterID, granteeID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check blocked (%d,%d): %w", granterID, granteeID, err)
+	}
+	return exists, nil
+}
+
 // FriendIDs returns the ids of every user ownerID has marked as a friend.
 func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
 	return s.relationshipIDs(ownerID, "friend")
@@ -392,4 +407,104 @@ func (s *Store) SourceIDsForChannel(channelID int64) ([]int64, error) {
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// ChannelsForSource returns the ids of every party channel where userID is
+// an active friends-of-friends scan source.
+func (s *Store) ChannelsForSource(userID int64) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT channel_id FROM party_sources WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("query channels for source %d: %w", userID, err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan channel id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// --- party_invites ---
+
+// Invite is a row from the party_invites table.
+type Invite struct {
+	ChannelID int64
+	UserID    int64
+	ExpiresAt int64
+}
+
+// AddInvite records a pending /party_invite grant for (channelID, userID),
+// refreshing expiresAt if a row already exists (re-inviting resets the TTL).
+func (s *Store) AddInvite(channelID, userID, expiresAt int64) error {
+	_, err := s.db.Exec(`
+		INSERT INTO party_invites (channel_id, user_id, expires_at) VALUES (?, ?, ?)
+		ON CONFLICT (channel_id, user_id) DO UPDATE SET expires_at = excluded.expires_at
+	`, channelID, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("add invite (%d,%d): %w", channelID, userID, err)
+	}
+	return nil
+}
+
+// RemoveInvite deletes the pending invite row for (channelID, userID), if any.
+func (s *Store) RemoveInvite(channelID, userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM party_invites WHERE channel_id = ? AND user_id = ?`, channelID, userID)
+	if err != nil {
+		return fmt.Errorf("remove invite (%d,%d): %w", channelID, userID, err)
+	}
+	return nil
+}
+
+// InviteIDsForChannel returns the ids of every user with a pending invite for
+// channelID.
+func (s *Store) InviteIDsForChannel(channelID int64) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT user_id FROM party_invites WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return nil, fmt.Errorf("query invites for channel %d: %w", channelID, err)
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan invite user id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// RemoveInvitesForChannel drops all pending invites for channelID, on party
+// cleanup.
+func (s *Store) RemoveInvitesForChannel(channelID int64) error {
+	_, err := s.db.Exec(`DELETE FROM party_invites WHERE channel_id = ?`, channelID)
+	if err != nil {
+		return fmt.Errorf("remove invites for channel %d: %w", channelID, err)
+	}
+	return nil
+}
+
+// AllInvites returns every pending invite row, for the startup sweep.
+func (s *Store) AllInvites() ([]Invite, error) {
+	rows, err := s.db.Query(`SELECT channel_id, user_id, expires_at FROM party_invites`)
+	if err != nil {
+		return nil, fmt.Errorf("query all invites: %w", err)
+	}
+	defer rows.Close()
+
+	var invites []Invite
+	for rows.Next() {
+		var inv Invite
+		if err := rows.Scan(&inv.ChannelID, &inv.UserID, &inv.ExpiresAt); err != nil {
+			return nil, fmt.Errorf("scan invite: %w", err)
+		}
+		invites = append(invites, inv)
+	}
+	return invites, rows.Err()
 }

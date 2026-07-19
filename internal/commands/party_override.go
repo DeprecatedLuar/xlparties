@@ -17,15 +17,15 @@ const (
 	overrideTypeDeny  = "deny"
 )
 
-func handlePartyAllow(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
-	handlePartyOverride(s, i, st, overrideTypeAllow)
+func handlePartyAllow(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
+	handlePartyOverride(s, i, st, pm, overrideTypeAllow)
 }
 
-func handlePartyBlock(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
-	handlePartyOverride(s, i, st, overrideTypeDeny)
+func handlePartyBlock(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
+	handlePartyOverride(s, i, st, pm, overrideTypeDeny)
 }
 
-func handlePartyOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, overrideType string) {
+func handlePartyOverride(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager, overrideType string) {
 	caller, target, ok := callerAndTarget(s, i)
 	if !ok {
 		return
@@ -74,6 +74,14 @@ func handlePartyOverride(s *discordgo.Session, i *discordgo.InteractionCreate, s
 		logger.Error("party override: upsert override", "override_type", overrideType, "error", err)
 		respondEphemeral(s, i, fmt.Sprintf(messages.FailedOverrideUser, actionVerb))
 		return
+	}
+
+	// A manual allow or deny is a standing decision on this exact target;
+	// any pending /party_invite is superseded either way (allow: they no
+	// longer need the temp grant; deny: it must not survive to expire and
+	// wipe the deny overwrite it left behind).
+	if err := pm.ClearPendingInvite(channelID, target); err != nil {
+		logger.Error("party override: clear pending invite", "channel", channelID, "target", target, "error", err)
 	}
 
 	logger.Info("party override set", "channel", channelID, "target", target, "override_type", overrideType)

@@ -7,10 +7,11 @@ import (
 
 	"xlparties/internal/logger"
 	"xlparties/internal/messages"
+	"xlparties/internal/party"
 	"xlparties/internal/store"
 )
 
-func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
 	caller, target, ok := callerAndTarget(s, i)
 	if !ok {
 		return
@@ -31,6 +32,9 @@ func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 		logger.Error("friend_add", "error", err)
 		respondEphemeral(s, i, messages.FailedAddFriend)
 		return
+	}
+	if err := pm.RewriteAffectedChannels(caller); err != nil {
+		logger.Error("friend_add: rewrite affected channels", "caller", caller, "error", err)
 	}
 	respondEphemeral(s, i, fmt.Sprintf(messages.FriendAdded, target))
 	notifyFriendAdded(s, i.GuildID, caller, target)

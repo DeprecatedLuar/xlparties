@@ -53,6 +53,7 @@ func Run() error {
 	partyManager := party.NewManager(session, st, guildID,
 		time.Duration(cfg.EmptyCleanupSeconds)*time.Second,
 		time.Duration(cfg.OwnerAbsenceHandoffSeconds)*time.Second,
+		time.Duration(cfg.InviteExpirySeconds)*time.Second,
 	)
 
 	if _, err := commands.Register(session, guildID, st, partyManager); err != nil {

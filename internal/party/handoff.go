@@ -114,12 +114,16 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	if err != nil {
 		return fmt.Errorf("load sources for channel %d: %w", channelID, err)
 	}
+	pendingInviteIDs, err := m.store.InviteIDsForChannel(channelID)
+	if err != nil {
+		return fmt.Errorf("load pending invites for channel %d: %w", channelID, err)
+	}
 	overrides, err := m.store.OverridesForChannel(channelID)
 	if err != nil {
 		return fmt.Errorf("load overrides for channel %d: %w", channelID, err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, ownerID, friendIDs, sourceIDs, overrides)
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, ownerID, friendIDs, sourceIDs, pendingInviteIDs, overrides)
 	if err != nil {
 		return fmt.Errorf("build overwrites for channel %d: %w", channelID, err)
 	}

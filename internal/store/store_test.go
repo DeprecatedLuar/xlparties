@@ -131,8 +131,23 @@ func TestPartySources(t *testing.T) {
 		t.Fatalf("SourceIDsForChannel after RemoveSource = %v, want [%d]", ids, sourceB)
 	}
 
+	channels, err := s.ChannelsForSource(sourceB)
+	if err != nil {
+		t.Fatalf("ChannelsForSource: %v", err)
+	}
+	if len(channels) != 1 || channels[0] != channel {
+		t.Fatalf("ChannelsForSource(%d) = %v, want [%d]", sourceB, channels, channel)
+	}
+
 	if err := s.RemoveSourcesForChannel(channel); err != nil {
 		t.Fatalf("RemoveSourcesForChannel: %v", err)
+	}
+	channels, err = s.ChannelsForSource(sourceB)
+	if err != nil {
+		t.Fatalf("ChannelsForSource: %v", err)
+	}
+	if len(channels) != 0 {
+		t.Fatalf("ChannelsForSource after RemoveSourcesForChannel = %v, want empty", channels)
 	}
 	ids, err = s.SourceIDsForChannel(channel)
 	if err != nil {
@@ -140,6 +155,102 @@ func TestPartySources(t *testing.T) {
 	}
 	if len(ids) != 0 {
 		t.Fatalf("SourceIDsForChannel after RemoveSourcesForChannel = %v, want empty", ids)
+	}
+}
+
+func TestIsBlocked(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, blocked, stranger = int64(1001), int64(2002), int64(3003)
+
+	if is, err := s.IsBlocked(owner, blocked); err != nil {
+		t.Fatalf("IsBlocked: %v", err)
+	} else if is {
+		t.Fatalf("IsBlocked(%d,%d) = true before any relationship exists", owner, blocked)
+	}
+
+	if err := s.UpsertBlock(owner, blocked); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+
+	if is, err := s.IsBlocked(owner, blocked); err != nil {
+		t.Fatalf("IsBlocked: %v", err)
+	} else if !is {
+		t.Fatalf("IsBlocked(%d,%d) = false after UpsertBlock", owner, blocked)
+	}
+
+	if is, err := s.IsBlocked(owner, stranger); err != nil {
+		t.Fatalf("IsBlocked: %v", err)
+	} else if is {
+		t.Fatalf("IsBlocked(%d,%d) = true, want false for unrelated user", owner, stranger)
+	}
+}
+
+func TestPartyInvites(t *testing.T) {
+	s := openTestStore(t)
+
+	const channel, owner, invitee, otherInvitee = int64(9001), int64(1001), int64(4001), int64(4002)
+	if err := s.InsertParty(channel, owner); err != nil {
+		t.Fatalf("InsertParty: %v", err)
+	}
+
+	if err := s.AddInvite(channel, invitee, 1000); err != nil {
+		t.Fatalf("AddInvite: %v", err)
+	}
+	if err := s.AddInvite(channel, otherInvitee, 2000); err != nil {
+		t.Fatalf("AddInvite: %v", err)
+	}
+
+	ids, err := s.InviteIDsForChannel(channel)
+	if err != nil {
+		t.Fatalf("InviteIDsForChannel: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("InviteIDsForChannel = %v, want 2 ids", ids)
+	}
+
+	// Re-inviting an existing pending invite refreshes expires_at rather
+	// than erroring or duplicating the row.
+	if err := s.AddInvite(channel, invitee, 5000); err != nil {
+		t.Fatalf("AddInvite (refresh): %v", err)
+	}
+	all, err := s.AllInvites()
+	if err != nil {
+		t.Fatalf("AllInvites: %v", err)
+	}
+	var found bool
+	for _, inv := range all {
+		if inv.ChannelID == channel && inv.UserID == invitee {
+			found = true
+			if inv.ExpiresAt != 5000 {
+				t.Fatalf("invite expires_at = %d, want 5000 after refresh", inv.ExpiresAt)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("AllInvites = %v, missing invite for (%d,%d)", all, channel, invitee)
+	}
+
+	if err := s.RemoveInvite(channel, invitee); err != nil {
+		t.Fatalf("RemoveInvite: %v", err)
+	}
+	ids, err = s.InviteIDsForChannel(channel)
+	if err != nil {
+		t.Fatalf("InviteIDsForChannel: %v", err)
+	}
+	if len(ids) != 1 || ids[0] != otherInvitee {
+		t.Fatalf("InviteIDsForChannel after RemoveInvite = %v, want [%d]", ids, otherInvitee)
+	}
+
+	if err := s.RemoveInvitesForChannel(channel); err != nil {
+		t.Fatalf("RemoveInvitesForChannel: %v", err)
+	}
+	ids, err = s.InviteIDsForChannel(channel)
+	if err != nil {
+		t.Fatalf("InviteIDsForChannel: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("InviteIDsForChannel after RemoveInvitesForChannel = %v, want empty", ids)
 	}
 }
 

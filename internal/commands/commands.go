@@ -65,6 +65,11 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to ban")},
 	},
 	{
+		Name:        "party_invite",
+		Description: "Invite a user to your current party; access lasts only while they stay connected",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to invite")},
+	},
+	{
 		Name:        "party_mode",
 		Description: "View or set your current party's access mode",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -79,6 +84,10 @@ var specs = []*discordgo.ApplicationCommand{
 				},
 			},
 		},
+	},
+	{
+		Name:        "party_info",
+		Description: "Show this party's type and manual allow/block overrides",
 	},
 	{
 		Name:        "help",
@@ -133,24 +142,22 @@ func userOption(description string) *discordgo.ApplicationCommandOption {
 type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)
 
 var handlers = map[string]handlerFunc{
-	"friend_add":    handleFriendAdd,
-	"friend_remove": handleFriendRemove,
-	"friend_list":   handleFriendList,
-	"enemy_add":     handleEnemyAdd,
-	"enemy_remove":  handleEnemyRemove,
-	"enemy_list":    handleEnemyList,
-	"party_allow":   handlePartyAllow,
-	"party_block":   handlePartyBlock,
-	"party_kick":    handlePartyKick,
-	"party_ban":     handlePartyBan,
-	"configure":     handleConfigure,
-	"help":          handleHelp,
+	"friend_list":  handleFriendList,
+	"enemy_add":    handleEnemyAdd,
+	"enemy_remove": handleEnemyRemove,
+	"enemy_list":   handleEnemyList,
+	"party_kick":   handlePartyKick,
+	"party_info":   handlePartyInfo,
+	"configure":    handleConfigure,
+	"help":         handleHelp,
 }
 
 // Register creates every command guild-scoped and wires interaction routing.
 // Returns the created commands so the caller can hold onto them if needed.
-// partyManager is only used by /party_mode, which is why it isn't threaded
-// through the shared handlerFunc signature the way *store.Store is.
+// partyManager is only needed by commands that touch live channel state or
+// timers, which is why it isn't threaded through the shared handlerFunc
+// signature the way *store.Store is - those commands are routed via the
+// explicit branches in route() instead.
 func Register(s *discordgo.Session, guildID string, st *store.Store, partyManager *party.Manager) ([]*discordgo.ApplicationCommand, error) {
 	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		route(s, i, st, partyManager)
@@ -168,8 +175,28 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 	case discordgo.InteractionApplicationCommand:
 		name := i.ApplicationCommandData().Name
 		logger.Info("command invoked", "command", name, "caller", i.Member.User.ID)
+		if name == "friend_add" {
+			handleFriendAdd(s, i, st, partyManager)
+			return
+		}
+		if name == "friend_remove" {
+			handleFriendRemove(s, i, st, partyManager)
+			return
+		}
 		if name == "party_mode" {
 			handlePartyMode(s, i, st, partyManager)
+			return
+		}
+		if name == "party_invite" {
+			handlePartyInvite(s, i, st, partyManager)
+			return
+		}
+		if name == "party_block" {
+			handlePartyBlock(s, i, st, partyManager)
+			return
+		}
+		if name == "party_ban" {
+			handlePartyBan(s, i, st, partyManager)
 			return
 		}
 		handler, ok := handlers[name]

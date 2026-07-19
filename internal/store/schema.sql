@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS party_sources (
   PRIMARY KEY (channel_id, user_id)
 );
 
+-- Ephemeral /party_invite grants: a pending row is the explicit trigger to
+-- revoke the temp allow overwrite it accompanies, either on join (see
+-- party.onJoinChannel) or on TTL expiry (see party.runInviteExpiry).
+CREATE TABLE IF NOT EXISTS party_invites (
+  channel_id INTEGER NOT NULL REFERENCES parties(channel_id),
+  user_id    INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

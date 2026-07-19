@@ -49,7 +49,7 @@ func TestBuildRewriteOverwritesCrawlsSourceFriends(t *testing.T) {
 		t.Fatalf("FriendIDs: %v", err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(s, guildID, owner, ownerFriendIDs, []int64{source}, nil)
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, ownerFriendIDs, []int64{source}, nil, nil)
 	if err != nil {
 		t.Fatalf("buildRewriteOverwrites: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestBuildRewriteOverwritesOverrideWinsOverSourceFriend(t *testing.T) {
 	}
 
 	overrides := []store.Override{{ChannelID: 1, UserID: sourceFriend, Type: "deny"}}
-	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, []int64{source}, overrides)
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, []int64{source}, nil, overrides)
 	if err != nil {
 		t.Fatalf("buildRewriteOverwrites: %v", err)
 	}
@@ -93,6 +93,46 @@ func TestBuildRewriteOverwritesOverrideWinsOverSourceFriend(t *testing.T) {
 		}
 	}
 	t.Fatalf("no overwrite found for denied source-friend %d", sourceFriend)
+}
+
+func TestBuildRewriteOverwritesPendingInviteSurvivesRebuild(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, invitee = int64(1001), int64(3001)
+
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, nil, []int64{invitee}, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	allowed := allowedIDs(t, overwrites)
+	if !allowed[formatID(invitee)] {
+		t.Errorf("expected pending invitee %d to be allowed, allowed set = %v", invitee, allowed)
+	}
+}
+
+func TestBuildRewriteOverwritesDenyOverrideWinsOverPendingInvite(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, invitee = int64(1001), int64(3001)
+
+	overrides := []store.Override{{ChannelID: 1, UserID: invitee, Type: "deny"}}
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, nil, []int64{invitee}, overrides)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == formatID(invitee) {
+			if ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
+				t.Fatalf("expected party_block override to win over pending invite, got overwrite %+v", ow)
+			}
+			return
+		}
+	}
+	t.Fatalf("no overwrite found for denied invitee %d", invitee)
 }
 
 func formatID(id int64) string {
