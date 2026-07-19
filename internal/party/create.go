@@ -92,8 +92,13 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	}
 
 	// Send salutations message to the new channel's text chat
-	if _, err := m.session.ChannelMessageSend(channel.ID, fmt.Sprintf(messages.PartyCreated, ownerID)); err != nil {
+	if _, err := m.session.ChannelMessageSend(channel.ID, fmt.Sprintf(messages.PartyCreated, ownerID, len(friendIDs))); err != nil {
 		logger.Error("party creation: post salutations", "channel", channelID, "error", err)
+	}
+	if len(friendIDs) == 0 {
+		if _, err := m.session.ChannelMessageSend(channel.ID, messages.PartyCreatedNoFriendsWarning); err != nil {
+			logger.Error("party creation: post no-friends warning", "channel", channelID, "error", err)
+		}
 	}
 
 	logger.Info("party created", "channel", channelID, "owner", ownerID, "friends", len(friendIDs))
