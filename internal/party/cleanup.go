@@ -2,6 +2,7 @@ package party
 
 import (
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -71,6 +72,20 @@ func (m *Manager) deleteParty(channelID int64) {
 	logger.Info("party cleaned up", "channel", channelID)
 }
 
+// sweepConcurrency bounds how many channelExists lookups StartupSweep issues
+// to Discord's REST API at once, so a large parties table doesn't serialize
+// one HTTP round-trip per row on every restart.
+const sweepConcurrency = 8
+
+// sweepResult pairs a party row with the outcome of its channelExists check,
+// so StartupSweep can run the REST lookups concurrently while still applying
+// their results (store writes, timer starts) one at a time.
+type sweepResult struct {
+	party  store.Party
+	exists bool
+	err    error
+}
+
 // StartupSweep reconciles the parties table against live Discord state after
 // a restart, per spec.md Cleanup: rows whose channel no longer exists are
 // removed, channels found empty get a fresh grace period, and non-empty
@@ -82,13 +97,30 @@ func (m *Manager) StartupSweep() {
 		return
 	}
 
-	for _, p := range parties {
-		exists, err := m.channelExists(p.ChannelID)
-		if err != nil {
-			logger.Error("startup sweep: check channel", "channel", p.ChannelID, "error", err)
+	results := make([]sweepResult, len(parties))
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for range sweepConcurrency {
+		wg.Go(func() {
+			for i := range jobs {
+				exists, err := m.channelExists(parties[i].ChannelID)
+				results[i] = sweepResult{party: parties[i], exists: exists, err: err}
+			}
+		})
+	}
+	for i := range parties {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	for _, res := range results {
+		p := res.party
+		if res.err != nil {
+			logger.Error("startup sweep: check channel", "channel", p.ChannelID, "error", res.err)
 			continue
 		}
-		if !exists {
+		if !res.exists {
 			if err := m.store.DeleteOverridesForChannel(p.ChannelID); err != nil {
 				logger.Error("startup sweep: delete overrides for orphan channel", "channel", p.ChannelID, "error", err)
 			}

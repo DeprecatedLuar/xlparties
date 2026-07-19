@@ -156,13 +156,9 @@ func Register(s *discordgo.Session, guildID string, st *store.Store, partyManage
 		route(s, i, st, partyManager)
 	})
 
-	created := make([]*discordgo.ApplicationCommand, 0, len(specs))
-	for _, spec := range specs {
-		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, guildID, spec)
-		if err != nil {
-			return nil, fmt.Errorf("register command %q: %w", spec.Name, err)
-		}
-		created = append(created, cmd)
+	created, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, guildID, specs)
+	if err != nil {
+		return nil, fmt.Errorf("register commands: %w", err)
 	}
 	return created, nil
 }
