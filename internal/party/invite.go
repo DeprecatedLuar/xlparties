@@ -10,6 +10,7 @@ import (
 
 	"xlparties/internal/logger"
 	"xlparties/internal/messages"
+	"xlparties/internal/store"
 )
 
 // inviteCodeMaxAgeCap is the maximum age Discord accepts on a created
@@ -72,6 +73,14 @@ func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutc
 			return InviteRefused, nil
 		}
 		break
+	}
+
+	// In public mode a target with no deny overwrite already has default
+	// access via @everyone: allow - granting a temp overwrite would be
+	// redundant, so treat it the same as an existing standing allow.
+	if p.AccessMode == store.AccessModePublic {
+		m.dmAlreadyHasAccess(targetID, callerID)
+		return InviteAlreadyHasAccess, nil
 	}
 
 	if callerID != p.OwnerID {

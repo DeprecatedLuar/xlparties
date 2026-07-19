@@ -23,7 +23,7 @@ type column struct {
 // entry here.
 var expectedColumns = map[string][]column{
 	"parties": {
-		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only'))"},
+		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))"},
 	},
 }
 
@@ -55,10 +55,11 @@ func migrateSchema(db *sql.DB) error {
 }
 
 // migratePartiesAccessModeCheck rebuilds the parties table if its
-// access_mode CHECK constraint predates the invite_only mode. SQLite has no
-// ALTER TABLE form for changing a CHECK constraint, so the only way to widen
-// one on an existing table is to recreate it under the DDL in schema.sql and
-// copy the data across. A no-op once the table already matches.
+// access_mode CHECK constraint predates the invite_only or public modes.
+// SQLite has no ALTER TABLE form for changing a CHECK constraint, so the
+// only way to widen one on an existing table is to recreate it under the DDL
+// in schema.sql and copy the data across. A no-op once the table already
+// matches.
 func migratePartiesAccessModeCheck(db *sql.DB) error {
 	var tableSQL sql.NullString
 	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'parties'`).Scan(&tableSQL)
@@ -68,7 +69,7 @@ func migratePartiesAccessModeCheck(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("read parties table definition: %w", err)
 	}
-	if strings.Contains(tableSQL.String, "invite_only") {
+	if strings.Contains(tableSQL.String, "public") {
 		return nil // already current
 	}
 
@@ -78,7 +79,7 @@ func migratePartiesAccessModeCheck(db *sql.DB) error {
 			channel_id  INTEGER PRIMARY KEY,
 			owner_id    INTEGER NOT NULL,
 			created_at  INTEGER NOT NULL,
-			access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only'))
+			access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
 		)`,
 		`INSERT INTO parties_new (channel_id, owner_id, created_at, access_mode) SELECT channel_id, owner_id, created_at, access_mode FROM parties`,
 		`DROP TABLE parties`,
@@ -90,7 +91,7 @@ func migratePartiesAccessModeCheck(db *sql.DB) error {
 			return fmt.Errorf("exec %q: %w", stmt, err)
 		}
 	}
-	logger.Info("store: migrated schema, widened parties.access_mode check to include invite_only")
+	logger.Info("store: migrated schema, widened parties.access_mode check to include public")
 	return nil
 }
 

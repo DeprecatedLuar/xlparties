@@ -17,7 +17,7 @@ import (
 // leave/rejoin.
 func (m *Manager) SetAccessMode(channelID int64, mode string) error {
 	switch mode {
-	case store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly:
+	case store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly, store.AccessModePublic:
 	default:
 		return fmt.Errorf("unknown access mode %q", mode)
 	}

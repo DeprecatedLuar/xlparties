@@ -13,7 +13,7 @@ import (
 	"xlparties/internal/store"
 )
 
-// partyModeComponentPrefix namespaces the CustomID of the three access-mode
+// partyModeComponentPrefix namespaces the CustomID of the access-mode
 // buttons so route() can tell them apart from other components.
 const partyModeComponentPrefix = "party_mode_"
 
@@ -23,6 +23,7 @@ var partyModeLabel = map[string]string{
 	store.AccessModeFriendsOfFriends: "Friends of friends",
 	store.AccessModeFriendsOnly:      "Friends only",
 	store.AccessModeInviteOnly:       "Invite only",
+	store.AccessModePublic:           "Public",
 }
 
 func handlePartyMode(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
@@ -132,7 +133,7 @@ func modeOption(i *discordgo.InteractionCreate) (string, bool) {
 }
 
 func partyModeButtonRow() discordgo.ActionsRow {
-	modes := []string{store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly}
+	modes := []string{store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly, store.AccessModePublic}
 	buttons := make([]discordgo.MessageComponent, 0, len(modes))
 	for _, mode := range modes {
 		buttons = append(buttons, discordgo.Button{

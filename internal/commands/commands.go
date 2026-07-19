@@ -81,6 +81,7 @@ var specs = []*discordgo.ApplicationCommand{
 					{Name: "Friends of friends", Value: store.AccessModeFriendsOfFriends},
 					{Name: "Friends only", Value: store.AccessModeFriendsOnly},
 					{Name: "Invite only", Value: store.AccessModeInviteOnly},
+					{Name: "Public", Value: store.AccessModePublic},
 				},
 			},
 		},

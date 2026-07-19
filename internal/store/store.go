@@ -26,6 +26,7 @@ const (
 	AccessModeFriendsOfFriends = "friends_of_friends"
 	AccessModeFriendsOnly      = "friends_only"
 	AccessModeInviteOnly       = "invite_only"
+	AccessModePublic           = "public"
 )
 
 // Store wraps the database connection and exposes all query methods.

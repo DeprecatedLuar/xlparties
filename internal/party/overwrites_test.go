@@ -49,7 +49,7 @@ func TestBuildRewriteOverwritesCrawlsSourceFriends(t *testing.T) {
 		t.Fatalf("FriendIDs: %v", err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(s, guildID, owner, ownerFriendIDs, []int64{source}, nil, nil)
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, ownerFriendIDs, []int64{source}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("buildRewriteOverwrites: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestBuildRewriteOverwritesOverrideWinsOverSourceFriend(t *testing.T) {
 	}
 
 	overrides := []store.Override{{ChannelID: 1, UserID: sourceFriend, Type: "deny"}}
-	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, []int64{source}, nil, overrides)
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, nil, []int64{source}, nil, nil, overrides)
 	if err != nil {
 		t.Fatalf("buildRewriteOverwrites: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestBuildRewriteOverwritesPendingInviteSurvivesRebuild(t *testing.T) {
 	const guildID = "1"
 	const owner, invitee = int64(1001), int64(3001)
 
-	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, nil, []int64{invitee}, nil)
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, nil, nil, []int64{invitee}, nil, nil)
 	if err != nil {
 		t.Fatalf("buildRewriteOverwrites: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestBuildRewriteOverwritesDenyOverrideWinsOverPendingInvite(t *testing.T) {
 	const owner, invitee = int64(1001), int64(3001)
 
 	overrides := []store.Override{{ChannelID: 1, UserID: invitee, Type: "deny"}}
-	overwrites, err := buildRewriteOverwrites(s, guildID, owner, nil, nil, []int64{invitee}, overrides)
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, nil, nil, []int64{invitee}, nil, overrides)
 	if err != nil {
 		t.Fatalf("buildRewriteOverwrites: %v", err)
 	}
@@ -133,6 +133,43 @@ func TestBuildRewriteOverwritesDenyOverrideWinsOverPendingInvite(t *testing.T) {
 		}
 	}
 	t.Fatalf("no overwrite found for denied invitee %d", invitee)
+}
+
+func TestBuildRewriteOverwritesPublicModeDeniesBlockedAllowsEveryoneElse(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, blocked, allowOverridden = int64(1001), int64(4001), int64(4002)
+
+	overrides := []store.Override{{ChannelID: 1, UserID: allowOverridden, Type: "allow"}}
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModePublic, nil, nil, nil, []int64{blocked, allowOverridden}, overrides)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	var everyone *discordgo.PermissionOverwrite
+	memberOverwrites := make(map[string]*discordgo.PermissionOverwrite)
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeRole && ow.ID == guildID {
+			everyone = ow
+		}
+		if ow.Type == discordgo.PermissionOverwriteTypeMember {
+			memberOverwrites[ow.ID] = ow
+		}
+	}
+
+	if everyone == nil || everyone.Allow&PartyChannelPermissions != PartyChannelPermissions {
+		t.Fatalf("expected @everyone to be allowed in public mode, got %+v", everyone)
+	}
+
+	if ow := memberOverwrites[formatID(blocked)]; ow == nil || ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
+		t.Errorf("expected blocked user %d to have a deny overwrite, got %+v", blocked, ow)
+	}
+
+	// A manual /party_allow overrides the auto-deny from the block list.
+	if ow := memberOverwrites[formatID(allowOverridden)]; ow == nil || ow.Allow&PartyChannelPermissions != PartyChannelPermissions {
+		t.Errorf("expected manually-allowed blocked user %d to be allowed, got %+v", allowOverridden, ow)
+	}
 }
 
 func formatID(id int64) string {

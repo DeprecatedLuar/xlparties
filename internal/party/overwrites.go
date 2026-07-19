@@ -35,44 +35,64 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 }
 
 // buildRewriteOverwrites returns the full overwrite set for a party channel
-// after an ownership handoff, per spec.md Ownership Rewrite: @everyone
-// denied, the new owner and their friends allowed, then each active
-// friends-of-friends source's own friends folded in, then each pending
-// /party_invite grant, then each manual party_overrides row applied last so
-// it wins over every default (including a pending invite - a ban revokes an
-// outstanding invite too).
+// after an ownership handoff or mode change, per spec.md Ownership Rewrite:
+// in every mode except public, @everyone is denied, the new owner and their
+// friends are allowed, then each active friends-of-friends source's own
+// friends folded in, then each pending /party_invite grant, then each
+// manual party_overrides row applied last so it wins over every default
+// (including a pending invite - a ban revokes an outstanding invite too).
+//
+// In public mode this flips: @everyone is allowed by default, and the
+// owner's globally-blocked users (blockedIDs) are the auto-deny set instead
+// - the mirror image of friends being the auto-allow set elsewhere.
+// party_overrides still applies last and still wins, so an owner can
+// /party_allow a globally-blocked person into this one channel.
 //
 // sourceIDs are the channel's active friends-of-friends scan sources
 // (party_sources); their friend lists are crawled live rather than stored,
 // per spec.md's "store what cannot be derived" rule.
-func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
-	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+len(pendingInviteIDs)+1+len(overrides))
+func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, mode string, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, blockedIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
+	isPublic := mode == store.AccessModePublic
+
+	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+len(pendingInviteIDs)+len(blockedIDs)+1+len(overrides))
 	allow[ownerID] = true
-	for _, friendID := range friendIDs {
-		allow[friendID] = true
-	}
-	for _, sourceID := range sourceIDs {
-		sourceFriendIDs, err := st.FriendIDs(sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("load friends for source %d: %w", sourceID, err)
-		}
-		for _, friendID := range sourceFriendIDs {
+	if !isPublic {
+		for _, friendID := range friendIDs {
 			allow[friendID] = true
 		}
-	}
-	for _, inviteeID := range pendingInviteIDs {
-		allow[inviteeID] = true
+		for _, sourceID := range sourceIDs {
+			sourceFriendIDs, err := st.FriendIDs(sourceID)
+			if err != nil {
+				return nil, fmt.Errorf("load friends for source %d: %w", sourceID, err)
+			}
+			for _, friendID := range sourceFriendIDs {
+				allow[friendID] = true
+			}
+		}
+		for _, inviteeID := range pendingInviteIDs {
+			allow[inviteeID] = true
+		}
+	} else {
+		for _, blockedID := range blockedIDs {
+			allow[blockedID] = false
+		}
 	}
 	for _, o := range overrides {
 		allow[o.UserID] = o.Type == "allow"
 	}
 
-	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(allow)+1)
-	overwrites = append(overwrites, &discordgo.PermissionOverwrite{
+	everyone := &discordgo.PermissionOverwrite{
 		ID:   guildID, // @everyone role id equals the guild id
 		Type: discordgo.PermissionOverwriteTypeRole,
-		Deny: PartyChannelPermissions,
-	})
+	}
+	if isPublic {
+		everyone.Allow = PartyChannelPermissions
+	} else {
+		everyone.Deny = PartyChannelPermissions
+	}
+
+	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(allow)+1)
+	overwrites = append(overwrites, everyone)
 	for userID, allowed := range allow {
 		overwrites = append(overwrites, memberOverwrite(userID, allowed))
 	}

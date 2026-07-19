@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS parties (
   channel_id  INTEGER PRIMARY KEY,   -- the party voice channel snowflake
   owner_id    INTEGER NOT NULL,      -- current owner snowflake
   created_at  INTEGER NOT NULL,
-  access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only'))
+  access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
 );
 
 CREATE TABLE IF NOT EXISTS party_overrides (

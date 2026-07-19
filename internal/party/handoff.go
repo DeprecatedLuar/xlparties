@@ -93,7 +93,9 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 // spec.md Ownership Rewrite. Sources survive the handoff - they belong to
 // the channel, not the owner. In invite_only mode the owner's friend list is
 // excluded entirely - only the owner and explicit party_overrides allow rows
-// grant access.
+// grant access. In public mode the owner's friend list is likewise excluded
+// (default access already covers everyone) and the owner's globally-blocked
+// users are loaded instead, as the auto-deny set.
 func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	current, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
@@ -104,7 +106,7 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	}
 
 	var friendIDs []int64
-	if current.AccessMode != store.AccessModeInviteOnly {
+	if current.AccessMode != store.AccessModeInviteOnly && current.AccessMode != store.AccessModePublic {
 		friendIDs, err = m.store.FriendIDs(ownerID)
 		if err != nil {
 			return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
@@ -118,12 +120,19 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	if err != nil {
 		return fmt.Errorf("load pending invites for channel %d: %w", channelID, err)
 	}
+	var blockedIDs []int64
+	if current.AccessMode == store.AccessModePublic {
+		blockedIDs, err = m.store.BlockIDs(ownerID)
+		if err != nil {
+			return fmt.Errorf("load blocked users for owner %d: %w", ownerID, err)
+		}
+	}
 	overrides, err := m.store.OverridesForChannel(channelID)
 	if err != nil {
 		return fmt.Errorf("load overrides for channel %d: %w", channelID, err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, ownerID, friendIDs, sourceIDs, pendingInviteIDs, overrides)
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, ownerID, current.AccessMode, friendIDs, sourceIDs, pendingInviteIDs, blockedIDs, overrides)
 	if err != nil {
 		return fmt.Errorf("build overwrites for channel %d: %w", channelID, err)
 	}
