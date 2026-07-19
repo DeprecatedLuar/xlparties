@@ -29,17 +29,21 @@ const (
 	// overwrite (owner, friend, or manual /party_allow); nothing was
 	// granted or recorded, but the target was DMed a reminder.
 	InviteAlreadyHasAccess
-	// InviteRefused means the target has a standing deny overwrite or is on
-	// the owner's block list; nothing was sent or changed.
+	// InviteRefused means the target has a standing deny overwrite, or is on
+	// the owner's block list and the caller isn't the owner; nothing was
+	// sent or changed.
 	InviteRefused
 )
 
 // InviteToParty applies the /party_invite access-decision for targetID on
 // channelID, keyed off the target's current channel overwrite: a standing
 // allow overwrite is never touched (only DMed, so a friend is never
-// revoked); a standing deny overwrite or an owner block-list entry is
-// refused outright; otherwise a temp allow overwrite is granted, tracked
-// with an expiry timer that is the explicit trigger to revoke it again.
+// revoked); a standing deny overwrite is always refused outright. The
+// owner's block list also refuses the invite, but only for non-owner
+// callers - the owner can invite someone they've blocked, since that's
+// their own call to reverse. Otherwise a temp allow overwrite is granted,
+// tracked with an expiry timer that is the explicit trigger to revoke it
+// again.
 func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutcome, error) {
 	p, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
@@ -70,12 +74,14 @@ func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutc
 		break
 	}
 
-	blocked, err := m.store.IsBlocked(p.OwnerID, targetID)
-	if err != nil {
-		return 0, fmt.Errorf("check block list for owner %d: %w", p.OwnerID, err)
-	}
-	if blocked {
-		return InviteRefused, nil
+	if callerID != p.OwnerID {
+		blocked, err := m.store.IsBlocked(p.OwnerID, targetID)
+		if err != nil {
+			return 0, fmt.Errorf("check block list for owner %d: %w", p.OwnerID, err)
+		}
+		if blocked {
+			return InviteRefused, nil
+		}
 	}
 
 	if err := m.session.ChannelPermissionSet(channelIDStr, targetIDStr, discordgo.PermissionOverwriteTypeMember, int64(PartyChannelPermissions), 0); err != nil {
