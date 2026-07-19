@@ -27,6 +27,7 @@ var templates = []string{
 	"<Adjective> <Location>",
 	"The <Location>",
 	"<Location>",
+	"<Adjective> <Noun>",
 }
 
 var (

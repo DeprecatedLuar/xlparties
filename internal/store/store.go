@@ -312,6 +312,59 @@ func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
 	return nil
 }
 
+// --- party_pending_creations ---
+
+// PendingCreation is a row from the party_pending_creations table.
+type PendingCreation struct {
+	OwnerID   int64
+	CreatedAt int64
+}
+
+// InsertPendingCreation marks ownerID's party creation as in flight, called
+// right before the Discord channel-create call so a crash mid-create leaves
+// a durable trace (upserts created_at so a retried creation isn't blocked by
+// a leftover row from an interrupted prior attempt for the same owner).
+func (s *Store) InsertPendingCreation(ownerID int64) error {
+	_, err := s.db.Exec(`
+		INSERT INTO party_pending_creations (owner_id, created_at) VALUES (?, ?)
+		ON CONFLICT (owner_id) DO UPDATE SET created_at = excluded.created_at
+	`, ownerID, time.Now().Unix())
+	if err != nil {
+		return fmt.Errorf("insert pending creation for owner %d: %w", ownerID, err)
+	}
+	return nil
+}
+
+// DeletePendingCreation clears the in-flight marker for ownerID, called once
+// spawnParty finishes (success or failure).
+func (s *Store) DeletePendingCreation(ownerID int64) error {
+	_, err := s.db.Exec(`DELETE FROM party_pending_creations WHERE owner_id = ?`, ownerID)
+	if err != nil {
+		return fmt.Errorf("delete pending creation for owner %d: %w", ownerID, err)
+	}
+	return nil
+}
+
+// AllPendingCreations returns every in-flight creation marker, for the
+// startup reconciliation that looks for channels leaked by a crash mid-create.
+func (s *Store) AllPendingCreations() ([]PendingCreation, error) {
+	rows, err := s.db.Query(`SELECT owner_id, created_at FROM party_pending_creations`)
+	if err != nil {
+		return nil, fmt.Errorf("query all pending creations: %w", err)
+	}
+	defer rows.Close()
+
+	var pending []PendingCreation
+	for rows.Next() {
+		var p PendingCreation
+		if err := rows.Scan(&p.OwnerID, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan pending creation: %w", err)
+		}
+		pending = append(pending, p)
+	}
+	return pending, rows.Err()
+}
+
 // --- party_overrides ---
 
 // UpsertOverride records a manual /party_allow or /party_block decision.

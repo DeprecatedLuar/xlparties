@@ -185,6 +185,89 @@ func (m *Manager) reconcileInvites() {
 	}
 }
 
+// ReconcileStaleCreations deletes voice channels leaked when the previous
+// process died between creating them on Discord and persisting their party
+// row (see spawnParty in create.go). Any party_pending_creations row still
+// present at startup is from that interrupted run - this process never got
+// far enough to learn the channel id, so the only reliable way back to the
+// leaked channel is the owner-specific member overwrite buildCreationOverwrites
+// stamps on every channel it creates. A pending row that matches no channel
+// just means the create call never reached Discord before the crash.
+func (m *Manager) ReconcileStaleCreations() {
+	pending, err := m.store.AllPendingCreations()
+	if err != nil {
+		logger.Error("reconcile stale creations: load pending", "error", err)
+		return
+	}
+	if len(pending) == 0 {
+		return
+	}
+
+	categoryID, ok, err := m.store.GetConfig(store.ConfigKeyCategory)
+	if err != nil {
+		logger.Error("reconcile stale creations: load party category config", "error", err)
+		return
+	}
+	if !ok {
+		return
+	}
+
+	channels, err := m.session.GuildChannels(m.guildID)
+	if err != nil {
+		logger.Error("reconcile stale creations: list guild channels", "error", err)
+		return
+	}
+
+	parties, err := m.store.AllParties()
+	if err != nil {
+		logger.Error("reconcile stale creations: load parties", "error", err)
+		return
+	}
+	tracked := make(map[int64]struct{}, len(parties))
+	for _, p := range parties {
+		tracked[p.ChannelID] = struct{}{}
+	}
+
+	for _, p := range pending {
+		if channelID, found := leakedChannelForOwner(channels, categoryID, tracked, p.OwnerID); found {
+			logger.Warn("reconcile stale creations: deleting leaked party channel", "channel", channelID, "owner", p.OwnerID)
+			m.deleteParty(channelID)
+		} else {
+			logger.Info("reconcile stale creations: no leaked channel found for interrupted creation", "owner", p.OwnerID)
+		}
+		if err := m.store.DeletePendingCreation(p.OwnerID); err != nil {
+			logger.Error("reconcile stale creations: clear pending row", "owner", p.OwnerID, "error", err)
+		}
+	}
+}
+
+// leakedChannelForOwner finds the untracked voice channel in categoryID that
+// carries a member overwrite allowing ownerID the party permission pair -
+// the same stamp buildCreationOverwrites puts on the owner's slot at
+// creation - which is the specific channel a given interrupted creation
+// would have produced.
+func leakedChannelForOwner(channels []*discordgo.Channel, categoryID string, tracked map[int64]struct{}, ownerID int64) (int64, bool) {
+	ownerIDStr := strconv.FormatInt(ownerID, 10)
+	for _, c := range channels {
+		if c.Type != discordgo.ChannelTypeGuildVoice || c.ParentID != categoryID {
+			continue
+		}
+		channelID, err := strconv.ParseInt(c.ID, 10, 64)
+		if err != nil {
+			continue
+		}
+		if _, ok := tracked[channelID]; ok {
+			continue
+		}
+		for _, ow := range c.PermissionOverwrites {
+			if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == ownerIDStr && ow.Allow&PartyChannelPermissions == PartyChannelPermissions {
+				return channelID, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // SweepOrphanChannels reports (but does not delete) voice channels sitting
 // in the configured party category that have no corresponding row in the
 // parties table.

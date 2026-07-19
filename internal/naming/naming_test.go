@@ -31,7 +31,7 @@ func TestGenerateFormat(t *testing.T) {
 
 		matched := false
 
-		// Check each of the 8 normalized templates:
+		// Check each of the 9 normalized templates:
 
 		// 1. the-<adjective>-<location>-of-<noun>
 		if strings.HasPrefix(name, "the-") && strings.Contains(name, "-of-") {
@@ -131,6 +131,19 @@ func TestGenerateFormat(t *testing.T) {
 		// 8. <location>
 		if !matched && locMap[name] {
 			matched = true
+		}
+
+		// 9. <adjective>-<noun>
+		if !matched {
+			subParts := strings.Split(name, "-")
+			for j := 1; j <= len(subParts); j++ {
+				adj := strings.Join(subParts[:j], "-")
+				noun := strings.Join(subParts[j:], "-")
+				if adjMap[adj] && nounMap[noun] {
+					matched = true
+					break
+				}
+			}
 		}
 
 		if !matched {

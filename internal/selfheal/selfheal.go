@@ -10,5 +10,6 @@ import "xlparties/internal/party"
 // Run performs all startup self-heal checks. Called once, after the owning
 // package's own reconciliation (e.g. party.StartupSweep) has run.
 func Run(partyManager *party.Manager) {
+	partyManager.ReconcileStaleCreations()
 	partyManager.SweepOrphanChannels()
 }

@@ -48,6 +48,17 @@ CREATE TABLE IF NOT EXISTS party_invites (
   PRIMARY KEY (channel_id, user_id)
 );
 
+-- Marks an owner's party creation as in flight, written just before the
+-- Discord channel-create call and cleared right after it finishes (success
+-- or failure). A row still present at startup means the previous process
+-- died mid-create - see internal/party/create.go spawnParty and
+-- internal/party/cleanup.go ReconcileStaleCreations, which is the only place
+-- that reads this table.
+CREATE TABLE IF NOT EXISTS party_pending_creations (
+  owner_id   INTEGER PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

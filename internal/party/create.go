@@ -53,6 +53,18 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		return fmt.Errorf("load party category config: %w", err)
 	}
 
+	// Recorded before the Discord call so a crash between the channel
+	// actually being created and InsertParty persisting it below leaves a
+	// durable trace; ReconcileStaleCreations reads it back on next startup.
+	if err := m.store.InsertPendingCreation(ownerID); err != nil {
+		return fmt.Errorf("record pending creation for owner %d: %w", ownerID, err)
+	}
+	defer func() {
+		if err := m.store.DeletePendingCreation(ownerID); err != nil {
+			logger.Error("clear pending creation", "owner", ownerID, "error", err)
+		}
+	}()
+
 	channel, err := m.session.GuildChannelCreateComplex(m.guildID, discordgo.GuildChannelCreateData{
 		Name:                 naming.Generate(),
 		Type:                 discordgo.ChannelTypeGuildVoice,
