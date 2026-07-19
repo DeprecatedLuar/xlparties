@@ -86,7 +86,7 @@ func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutc
 		return 0, fmt.Errorf("record invite: %w", err)
 	}
 	m.startInviteExpiryTimer(channelID, targetID, m.inviteExpiry)
-	m.dmInviteGranted(targetID, callerID, channelIDStr, channel.Name)
+	m.dmInviteGranted(targetID, callerID, channelIDStr)
 
 	logger.Info("party invite granted", "channel", channelID, "caller", callerID, "target", targetID)
 	return InviteGranted, nil
@@ -108,12 +108,12 @@ func (m *Manager) dmAlreadyHasAccess(targetID, callerID int64) {
 	}
 }
 
-// dmInviteGranted best-effort DMs targetID a join link for channelIDStr
-// (named channelName), created as a short-lived native Discord invite (a
-// plain channel link would not work since the target has no standing
-// VIEW_CHANNEL overwrite yet). DM/invite-creation failures are logged, not
-// surfaced to the caller - the overwrite grant itself already succeeded.
-func (m *Manager) dmInviteGranted(targetID, callerID int64, channelIDStr, channelName string) {
+// dmInviteGranted best-effort DMs targetID a one-click join link for
+// channelIDStr, created as a short-lived native Discord invite (a plain
+// channel link would not work since the target has no standing VIEW_CHANNEL
+// overwrite yet). DM/invite-creation failures are logged, not surfaced to
+// the caller - the overwrite grant itself already succeeded.
+func (m *Manager) dmInviteGranted(targetID, callerID int64, channelIDStr string) {
 	maxAge := int(m.inviteExpiry.Seconds())
 	if maxAge <= 0 || maxAge > inviteCodeMaxAgeCap {
 		maxAge = inviteCodeMaxAgeCap
@@ -128,19 +128,12 @@ func (m *Manager) dmInviteGranted(targetID, callerID int64, channelIDStr, channe
 		return
 	}
 
-	guildName := m.guildID
-	if guild, err := m.session.State.Guild(m.guildID); err == nil {
-		guildName = guild.Name
-	} else {
-		logger.Error("party invite: could not load guild name", "guild", m.guildID, "error", err)
-	}
-
 	channel, err := m.session.UserChannelCreate(strconv.FormatInt(targetID, 10))
 	if err != nil {
 		logger.Error("party invite: could not open DM", "target", targetID, "error", err)
 		return
 	}
-	msg := fmt.Sprintf(messages.PartyInviteDMBody, messages.RandomGreeting(), callerID, channelName, guildName, "https://discord.gg/"+invite.Code)
+	msg := fmt.Sprintf(messages.PartyInviteDMBody, messages.RandomGreeting(), callerID, "https://discord.gg/"+invite.Code)
 	if _, err := m.session.ChannelMessageSend(channel.ID, msg); err != nil {
 		logger.Error("party invite: could not DM join link", "target", targetID, "error", err)
 	}

@@ -101,7 +101,7 @@ const (
 	PartyInviteAlreadyHasAccess   = "<@%d> already has access to this party — sent them a reminder instead"
 	PartyInviteRefused            = "<@%d> can't be invited to this party"
 	PartyInviteDMAlreadyHasAccess = "## %s\n<@%d> tried to invite you to their party in this server, but you already have access - hop into their party voice channel whenever you like."
-	PartyInviteDMBody             = "## %s\n<@%d> formally invites you to their party, **%s**, on *%s*:\n%s"
+	PartyInviteDMBody             = "## %s\n<@%d> invited you to their party in this server. Here's your one-click join link (works once, and only until you use it or it expires):\n%s"
 )
 
 // party ownership handoff notice, posted by internal/party.
