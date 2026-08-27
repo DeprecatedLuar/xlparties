@@ -60,6 +60,14 @@ CREATE TABLE IF NOT EXISTS party_pending_creations (
   created_at INTEGER NOT NULL
 );
 
+-- Per-user saved default access mode, applied only at party creation (see
+-- internal/party/create.go resolveAccessMode). Absence of a row means
+-- store.DefaultAccessMode, not a stored value.
+CREATE TABLE IF NOT EXISTS user_presets (
+  user_id     INTEGER PRIMARY KEY,
+  access_mode TEXT NOT NULL CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
+);
+
 CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL

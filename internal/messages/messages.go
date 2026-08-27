@@ -41,6 +41,17 @@ const (
 	FailedSetPartyMode = "failed to set access mode to %s"
 )
 
+// /party_preset
+const (
+	PartyPresetPrompt    = "pick your saved default access mode (applies only when you next create a party)"
+	PartyPresetSet       = "your default access mode is now **%s**"
+	PartyPresetCleared   = "your saved default access mode has been cleared - new parties will use the default (%s)"
+	FailedSetPartyPreset = "failed to set your default access mode"
+	FailedClearPreset    = "failed to clear your saved default access mode"
+	PartyPresetCurrent   = "**Your saved preset:** %s"
+	NoPartyPreset        = "**Your saved preset:** _none (uses default: %s)_"
+)
+
 // /configure
 const (
 	ExpectedOneSubcommand = "I may have expected exactly one /configure subcommand"
@@ -92,7 +103,7 @@ const (
 
 // /party_info
 const (
-	PartyInfoHeader = "**Party type:** %s\n\n**Allowed in:**\n%s\n\n**Blocked:**\n%s"
+	PartyInfoHeader = "**Party type:** %s\n\n**Allowed in:**\n%s\n\n**Blocked:**\n%s\n\n%s"
 	NoOverrides     = "_none_"
 )
 

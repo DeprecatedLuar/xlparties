@@ -12,6 +12,13 @@ import (
 )
 
 func handlePartyInfo(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+	caller, err := callerID(i)
+	if err != nil {
+		logger.Error("party_info: resolve caller id", "error", err)
+		respondEphemeral(s, i, messages.FailedResolveCaller)
+		return
+	}
+
 	channelID, err := strconv.ParseInt(i.ChannelID, 10, 64)
 	if err != nil {
 		logger.Error("party_info: parse channel id", "error", err)
@@ -46,10 +53,22 @@ func handlePartyInfo(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 		}
 	}
 
+	preset, found, err := st.PresetForUser(caller)
+	if err != nil {
+		logger.Error("party_info: lookup preset", "error", err)
+		respondEphemeral(s, i, messages.FailedLookupParty)
+		return
+	}
+	presetLine := fmt.Sprintf(messages.NoPartyPreset, partyModeLabel[store.DefaultAccessMode])
+	if found {
+		presetLine = fmt.Sprintf(messages.PartyPresetCurrent, partyModeLabel[preset])
+	}
+
 	respondEphemeral(s, i, fmt.Sprintf(messages.PartyInfoHeader,
 		partyModeLabel[activeParty.AccessMode],
 		overrideList(allowedIDs),
 		overrideList(blockedIDs),
+		presetLine,
 	))
 }
 

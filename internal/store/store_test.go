@@ -360,3 +360,65 @@ func TestFrenemyFlagsAreIndependent(t *testing.T) {
 		t.Fatalf("relationship row still present after clearing both flags, count = %d", rowCount)
 	}
 }
+
+func TestPresetUpsertReplacesRatherThanDuplicates(t *testing.T) {
+	s := openTestStore(t)
+
+	const user = int64(4004)
+
+	if err := s.UpsertPreset(user, AccessModeFriendsOnly); err != nil {
+		t.Fatalf("UpsertPreset: %v", err)
+	}
+	if err := s.UpsertPreset(user, AccessModeInviteOnly); err != nil {
+		t.Fatalf("UpsertPreset (replace): %v", err)
+	}
+
+	mode, found, err := s.PresetForUser(user)
+	if err != nil {
+		t.Fatalf("PresetForUser: %v", err)
+	}
+	if !found || mode != AccessModeInviteOnly {
+		t.Fatalf("PresetForUser = (%q, %v), want (%q, true)", mode, found, AccessModeInviteOnly)
+	}
+
+	var rowCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM user_presets WHERE user_id = ?`, user).Scan(&rowCount); err != nil {
+		t.Fatalf("count preset rows: %v", err)
+	}
+	if rowCount != 1 {
+		t.Fatalf("user_presets row count = %d, want 1", rowCount)
+	}
+}
+
+func TestPresetForUserReportsAbsence(t *testing.T) {
+	s := openTestStore(t)
+
+	mode, found, err := s.PresetForUser(5005)
+	if err != nil {
+		t.Fatalf("PresetForUser: %v", err)
+	}
+	if found || mode != "" {
+		t.Fatalf("PresetForUser = (%q, %v), want (\"\", false)", mode, found)
+	}
+}
+
+func TestDeletePresetRestoresAbsence(t *testing.T) {
+	s := openTestStore(t)
+
+	const user = int64(6006)
+
+	if err := s.UpsertPreset(user, AccessModePublic); err != nil {
+		t.Fatalf("UpsertPreset: %v", err)
+	}
+	if err := s.DeletePreset(user); err != nil {
+		t.Fatalf("DeletePreset: %v", err)
+	}
+
+	_, found, err := s.PresetForUser(user)
+	if err != nil {
+		t.Fatalf("PresetForUser: %v", err)
+	}
+	if found {
+		t.Fatalf("PresetForUser found = true after DeletePreset, want false")
+	}
+}

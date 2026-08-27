@@ -43,7 +43,10 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		logger.Info("party channel no longer exists on Discord, reclaiming slot", "channel", existing.ChannelID, "owner", ownerID)
 	}
 
-	mode := store.DefaultAccessMode
+	mode, err := resolveAccessMode(m.store, ownerID)
+	if err != nil {
+		return fmt.Errorf("resolve access mode for owner %d: %w", ownerID, err)
+	}
 
 	var friendIDs []int64
 	if mode != store.AccessModePublic {
@@ -122,6 +125,20 @@ func (m *Manager) spawnParty(ownerID int64) error {
 
 	logger.Info("party created", "channel", channelID, "owner", ownerID, "friends", len(friendIDs))
 	return nil
+}
+
+// resolveAccessMode returns ownerID's saved preset mode, falling back to
+// store.DefaultAccessMode when no preset is set. A preset only ever affects
+// the party being created here - it never rewrites an existing one.
+func resolveAccessMode(st *store.Store, ownerID int64) (string, error) {
+	mode, found, err := st.PresetForUser(ownerID)
+	if err != nil {
+		return "", fmt.Errorf("load preset for owner %d: %w", ownerID, err)
+	}
+	if !found {
+		return store.DefaultAccessMode, nil
+	}
+	return mode, nil
 }
 
 // channelExists reports whether channelID still exists on Discord,

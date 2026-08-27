@@ -336,6 +336,44 @@ func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
 	return nil
 }
 
+// --- user_presets ---
+
+// UpsertPreset sets userID's saved default access mode, applied only at
+// their next party creation.
+func (s *Store) UpsertPreset(userID int64, mode string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO user_presets (user_id, access_mode) VALUES (?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET access_mode = excluded.access_mode
+	`, userID, mode)
+	if err != nil {
+		return fmt.Errorf("upsert preset for user %d: %w", userID, err)
+	}
+	return nil
+}
+
+// PresetForUser returns userID's saved access mode, and whether a row
+// exists. Absence means DefaultAccessMode applies, not a stored value.
+func (s *Store) PresetForUser(userID int64) (string, bool, error) {
+	var mode string
+	err := s.db.QueryRow(`SELECT access_mode FROM user_presets WHERE user_id = ?`, userID).Scan(&mode)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get preset for user %d: %w", userID, err)
+	}
+	return mode, true, nil
+}
+
+// DeletePreset removes userID's saved preset, returning them to the default.
+func (s *Store) DeletePreset(userID int64) error {
+	_, err := s.db.Exec(`DELETE FROM user_presets WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("delete preset for user %d: %w", userID, err)
+	}
+	return nil
+}
+
 // --- party_pending_creations ---
 
 // PendingCreation is a row from the party_pending_creations table.

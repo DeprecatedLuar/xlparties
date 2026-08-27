@@ -21,6 +21,7 @@ Friend and enemy status are independent - blocking a friend (or friending an ene
 ` + "`/party_invite user`" + ` — invite anyone to your current party; access is tied to their presence
 ` + "`/party_mode [mode]`" + ` — view or set your current party's access mode (friends of friends / friends only / invite only / public)
 ` + "`/party_info`" + ` — show your current party's access mode, allowed users, and blocked users
+` + "`/party_preset [mode]`" + ` — view or set your saved default access mode; only applies when you next create a party, never rewrites an existing one
 ` + "`/configure`" + ` — (admin) set the watch channel and party category
 ` + "`/help`" + ` — show this message
 

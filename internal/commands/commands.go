@@ -91,6 +91,24 @@ var specs = []*discordgo.ApplicationCommand{
 		Description: "Show this party's type and manual allow/block overrides",
 	},
 	{
+		Name:        "party_preset",
+		Description: "View or set your saved default access mode, applied only when you next create a party",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "mode",
+				Description: "The default access mode to save",
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "Friends of friends", Value: store.AccessModeFriendsOfFriends},
+					{Name: "Friends only", Value: store.AccessModeFriendsOnly},
+					{Name: "Invite only", Value: store.AccessModeInviteOnly},
+					{Name: "Public", Value: store.AccessModePublic},
+					{Name: "Clear (use default)", Value: partyPresetClearValue},
+				},
+			},
+		},
+	},
+	{
 		Name:        "help",
 		Description: "List available commands",
 	},
@@ -143,12 +161,13 @@ func userOption(description string) *discordgo.ApplicationCommandOption {
 type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)
 
 var handlers = map[string]handlerFunc{
-	"friend_list": handleFriendList,
-	"enemy_list":  handleEnemyList,
-	"party_kick":  handlePartyKick,
-	"party_info":  handlePartyInfo,
-	"configure":   handleConfigure,
-	"help":        handleHelp,
+	"friend_list":  handleFriendList,
+	"enemy_list":   handleEnemyList,
+	"party_kick":   handlePartyKick,
+	"party_info":   handlePartyInfo,
+	"party_preset": handlePartyPreset,
+	"configure":    handleConfigure,
+	"help":         handleHelp,
 }
 
 // Register creates every command guild-scoped and wires interaction routing.
@@ -216,6 +235,10 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 		customID := i.MessageComponentData().CustomID
 		if strings.HasPrefix(customID, partyModeComponentPrefix) {
 			handlePartyModeComponent(s, i, st, partyManager)
+			return
+		}
+		if strings.HasPrefix(customID, partyPresetComponentPrefix) {
+			handlePartyPresetComponent(s, i, st)
 			return
 		}
 		logger.Warn("unknown component interaction", "custom_id", customID)
