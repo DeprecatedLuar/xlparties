@@ -172,6 +172,121 @@ func TestBuildRewriteOverwritesPublicModeDeniesBlockedAllowsEveryoneElse(t *test
 	}
 }
 
+func TestBuildRewriteOverwritesFrenemyOfOwnerIsDenied(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, frenemy = int64(1001), int64(1002)
+
+	if err := s.UpsertFriend(owner, frenemy); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if err := s.UpsertBlock(owner, frenemy); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+
+	ownerFriendIDs, err := s.AllowedFriendIDs(owner)
+	if err != nil {
+		t.Fatalf("AllowedFriendIDs: %v", err)
+	}
+	blockedIDs, err := s.BlockIDs(owner)
+	if err != nil {
+		t.Fatalf("BlockIDs: %v", err)
+	}
+
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, ownerFriendIDs, nil, nil, blockedIDs, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == formatID(frenemy) {
+			if ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
+				t.Fatalf("expected frenemy %d to be denied, got overwrite %+v", frenemy, ow)
+			}
+			return
+		}
+	}
+	t.Fatalf("no overwrite found for frenemy %d", frenemy)
+}
+
+func TestBuildRewriteOverwritesBlockedBySourceFriendIsStillDenied(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner = int64(1001)
+	const source, blockedBySourceFriend = int64(2001), int64(2002)
+
+	if err := s.UpsertFriend(source, blockedBySourceFriend); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if err := s.UpsertBlock(owner, blockedBySourceFriend); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+
+	blockedIDs, err := s.BlockIDs(owner)
+	if err != nil {
+		t.Fatalf("BlockIDs: %v", err)
+	}
+
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, nil, []int64{source}, nil, blockedIDs, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == formatID(blockedBySourceFriend) {
+			if ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
+				t.Fatalf("expected owner-blocked user %d to be denied despite a source's friend edge, got overwrite %+v", blockedBySourceFriend, ow)
+			}
+			return
+		}
+	}
+	t.Fatalf("no overwrite found for owner-blocked user %d", blockedBySourceFriend)
+}
+
+func TestBuildRewriteOverwritesOverrideWinsOverGlobalBlock(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, blocked = int64(1001), int64(4001)
+
+	overrides := []store.Override{{ChannelID: 1, UserID: blocked, Type: "allow"}}
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, nil, nil, nil, []int64{blocked}, overrides)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == formatID(blocked) {
+			if ow.Allow&PartyChannelPermissions != PartyChannelPermissions {
+				t.Fatalf("expected party_allow override to win over global block, got overwrite %+v", ow)
+			}
+			return
+		}
+	}
+	t.Fatalf("no overwrite found for blocked-but-allowed user %d", blocked)
+}
+
+func TestBuildRewriteOverwritesPendingInviteStillWinsOverGlobalBlock(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, invitee = int64(1001), int64(4001)
+
+	// A block that predates the invite: the invite is a deliberate
+	// per-channel grant and applies after blockedIDs, so it should still win.
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModeFriendsOfFriends, nil, nil, []int64{invitee}, []int64{invitee}, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	allowed := allowedIDs(t, overwrites)
+	if !allowed[formatID(invitee)] {
+		t.Errorf("expected pending invitee %d to remain allowed over a global block, allowed set = %v", invitee, allowed)
+	}
+}
+
 func formatID(id int64) string {
 	return memberOverwrite(id, true).ID
 }

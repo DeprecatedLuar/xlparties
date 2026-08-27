@@ -3,10 +3,11 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS relationships (
-  granter_id    INTEGER NOT NULL REFERENCES users(id),
-  grantee_id    INTEGER NOT NULL REFERENCES users(id),
-  relation_type TEXT NOT NULL CHECK (relation_type IN ('friend','block')),
-  created_at    INTEGER NOT NULL,
+  granter_id INTEGER NOT NULL REFERENCES users(id),
+  grantee_id INTEGER NOT NULL REFERENCES users(id),
+  is_friend  INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0,1)),
+  is_blocked INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0,1)),
+  created_at INTEGER NOT NULL,
   PRIMARY KEY (granter_id, grantee_id)
 );
 

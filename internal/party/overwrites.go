@@ -38,15 +38,17 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 // after an ownership handoff or mode change:
 // in every mode except public, @everyone is denied, the new owner and their
 // friends are allowed, then each active friends-of-friends source's own
-// friends folded in, then each pending /party_invite grant, then each
-// manual party_overrides row applied last so it wins over every default
-// (including a pending invite - a ban revokes an outstanding invite too).
+// friends folded in. In public mode this flips: @everyone is allowed by
+// default instead.
 //
-// In public mode this flips: @everyone is allowed by default, and the
-// owner's globally-blocked users (blockedIDs) are the auto-deny set instead
-// - the mirror image of friends being the auto-allow set elsewhere.
-// party_overrides still applies last and still wins, so an owner can
-// /party_allow a globally-blocked person into this one channel.
+// In every mode, the owner's globally-blocked users (blockedIDs) are then
+// applied as denies, so a block always beats an automatic allow (friend,
+// friends-of-friends) regardless of mode. Then each pending /party_invite
+// grant is applied, and finally each manual party_overrides row - both are
+// deliberate per-channel grants that still win over a global block (an
+// owner can /party_allow, or actively invite, a blocked person into one
+// channel). party_overrides applies last so it wins over everything above,
+// including a pending invite (a ban revokes an outstanding invite too).
 //
 // sourceIDs are the channel's active friends-of-friends scan sources
 // (party_sources); their friend lists are crawled live rather than stored,
@@ -61,7 +63,7 @@ func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, mode
 			allow[friendID] = true
 		}
 		for _, sourceID := range sourceIDs {
-			sourceFriendIDs, err := st.FriendIDs(sourceID)
+			sourceFriendIDs, err := st.AllowedFriendIDs(sourceID)
 			if err != nil {
 				return nil, fmt.Errorf("load friends for source %d: %w", sourceID, err)
 			}
@@ -69,12 +71,13 @@ func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, mode
 				allow[friendID] = true
 			}
 		}
+	}
+	for _, blockedID := range blockedIDs {
+		allow[blockedID] = false
+	}
+	if !isPublic {
 		for _, inviteeID := range pendingInviteIDs {
 			allow[inviteeID] = true
-		}
-	} else {
-		for _, blockedID := range blockedIDs {
-			allow[blockedID] = false
 		}
 	}
 	for _, o := range overrides {

@@ -36,7 +36,16 @@ func handleFriendAdd(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 	if err := pm.RewriteAffectedChannels(caller); err != nil {
 		logger.Error("friend_add: rewrite affected channels", "caller", caller, "error", err)
 	}
-	respondEphemeral(s, i, fmt.Sprintf(messages.FriendAdded, target))
+
+	isBlocked, err := st.IsBlocked(caller, target)
+	if err != nil {
+		logger.Error("friend_add: check block status", "error", err)
+	}
+	if isBlocked {
+		respondEphemeral(s, i, fmt.Sprintf(messages.FriendAddedStillBlocked, target))
+	} else {
+		respondEphemeral(s, i, fmt.Sprintf(messages.FriendAdded, target))
+	}
 	notifyFriendAdded(s, i.GuildID, caller, target)
 }
 

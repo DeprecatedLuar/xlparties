@@ -94,8 +94,9 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 // the channel, not the owner. In invite_only mode the owner's friend list is
 // excluded entirely - only the owner and explicit party_overrides allow rows
 // grant access. In public mode the owner's friend list is likewise excluded
-// (default access already covers everyone) and the owner's globally-blocked
-// users are loaded instead, as the auto-deny set.
+// (default access already covers everyone). The owner's globally-blocked
+// users are loaded unconditionally in every mode, since a block must win
+// over any automatic allow regardless of mode.
 func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	current, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
@@ -107,7 +108,7 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 
 	var friendIDs []int64
 	if current.AccessMode != store.AccessModeInviteOnly && current.AccessMode != store.AccessModePublic {
-		friendIDs, err = m.store.FriendIDs(ownerID)
+		friendIDs, err = m.store.AllowedFriendIDs(ownerID)
 		if err != nil {
 			return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
 		}
@@ -120,12 +121,9 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	if err != nil {
 		return fmt.Errorf("load pending invites for channel %d: %w", channelID, err)
 	}
-	var blockedIDs []int64
-	if current.AccessMode == store.AccessModePublic {
-		blockedIDs, err = m.store.BlockIDs(ownerID)
-		if err != nil {
-			return fmt.Errorf("load blocked users for owner %d: %w", ownerID, err)
-		}
+	blockedIDs, err := m.store.BlockIDs(ownerID)
+	if err != nil {
+		return fmt.Errorf("load blocked users for owner %d: %w", ownerID, err)
 	}
 	overrides, err := m.store.OverridesForChannel(channelID)
 	if err != nil {
@@ -156,7 +154,7 @@ func containsUser(members []string, userID int64) bool {
 // marked as friends; if none of the present members are friends, it falls
 // back to a random pick among all present members.
 func (m *Manager) pickHandoffSuccessor(members []string, absentOwnerID int64) (int64, error) {
-	friendIDs, err := m.store.FriendIDs(absentOwnerID)
+	friendIDs, err := m.store.AllowedFriendIDs(absentOwnerID)
 	if err != nil {
 		return 0, fmt.Errorf("load friends for absent owner %d: %w", absentOwnerID, err)
 	}

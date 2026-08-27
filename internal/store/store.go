@@ -93,102 +93,120 @@ func (s *Store) upsertUser(userID int64) error {
 // --- relationships ---
 
 // UpsertFriend records that granterID allows granteeID to see and join
-// granterID's party by default. Replaces any existing block edge.
+// granterID's party by default. Leaves any existing block flag untouched -
+// friend and block are independent, so a friend can also be blocked
+// (a "frenemy").
 func (s *Store) UpsertFriend(granterID, granteeID int64) error {
-	return s.upsertRelationship(granterID, granteeID, "friend")
+	return s.upsertRelationshipFlag(granterID, granteeID, "is_friend")
 }
 
-// UpsertBlock records that granterID denies granteeID access. Replaces any
-// existing friend edge.
+// UpsertBlock records that granterID denies granteeID access. Leaves any
+// existing friend flag untouched - see UpsertFriend.
 func (s *Store) UpsertBlock(granterID, granteeID int64) error {
-	return s.upsertRelationship(granterID, granteeID, "block")
+	return s.upsertRelationshipFlag(granterID, granteeID, "is_blocked")
 }
 
-func (s *Store) upsertRelationship(granterID, granteeID int64, relationType string) error {
+func (s *Store) upsertRelationshipFlag(granterID, granteeID int64, flagColumn string) error {
 	if err := s.upsertUser(granterID); err != nil {
 		return err
 	}
 	if err := s.upsertUser(granteeID); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`
-		INSERT INTO relationships (granter_id, grantee_id, relation_type, created_at)
-		VALUES (?, ?, ?, ?)
+	_, err := s.db.Exec(fmt.Sprintf(`
+		INSERT INTO relationships (granter_id, grantee_id, %s, created_at)
+		VALUES (?, ?, 1, ?)
 		ON CONFLICT (granter_id, grantee_id)
-		DO UPDATE SET relation_type = excluded.relation_type, created_at = excluded.created_at
-	`, granterID, granteeID, relationType, time.Now().Unix())
+		DO UPDATE SET %s = 1
+	`, flagColumn, flagColumn), granterID, granteeID, time.Now().Unix())
 	if err != nil {
-		return fmt.Errorf("upsert relationship (%d,%d,%s): %w", granterID, granteeID, relationType, err)
+		return fmt.Errorf("upsert relationship flag %s (%d,%d): %w", flagColumn, granterID, granteeID, err)
 	}
 	return nil
 }
 
-// RemoveFriend deletes the (granterID, granteeID, 'friend') edge, if present.
+// RemoveFriend clears the friend flag on the (granterID, granteeID) edge,
+// deleting the row entirely if the block flag is also unset.
 func (s *Store) RemoveFriend(granterID, granteeID int64) error {
-	return s.removeRelationship(granterID, granteeID, "friend")
+	return s.removeRelationshipFlag(granterID, granteeID, "is_friend")
 }
 
-// RemoveBlock deletes the (granterID, granteeID, 'block') edge, if present.
+// RemoveBlock clears the block flag on the (granterID, granteeID) edge,
+// deleting the row entirely if the friend flag is also unset.
 func (s *Store) RemoveBlock(granterID, granteeID int64) error {
-	return s.removeRelationship(granterID, granteeID, "block")
+	return s.removeRelationshipFlag(granterID, granteeID, "is_blocked")
 }
 
-func (s *Store) removeRelationship(granterID, granteeID int64, relationType string) error {
-	_, err := s.db.Exec(`
-		DELETE FROM relationships WHERE granter_id = ? AND grantee_id = ? AND relation_type = ?
-	`, granterID, granteeID, relationType)
-	if err != nil {
-		return fmt.Errorf("remove relationship (%d,%d,%s): %w", granterID, granteeID, relationType, err)
+func (s *Store) removeRelationshipFlag(granterID, granteeID int64, flagColumn string) error {
+	if _, err := s.db.Exec(fmt.Sprintf(`
+		UPDATE relationships SET %s = 0 WHERE granter_id = ? AND grantee_id = ?
+	`, flagColumn), granterID, granteeID); err != nil {
+		return fmt.Errorf("clear relationship flag %s (%d,%d): %w", flagColumn, granterID, granteeID, err)
+	}
+	if _, err := s.db.Exec(`
+		DELETE FROM relationships WHERE granter_id = ? AND grantee_id = ? AND is_friend = 0 AND is_blocked = 0
+	`, granterID, granteeID); err != nil {
+		return fmt.Errorf("prune empty relationship (%d,%d): %w", granterID, granteeID, err)
 	}
 	return nil
 }
 
-// IsFriend reports whether granterID already has a friend edge to granteeID.
+// IsFriend reports whether granterID has friended granteeID (regardless of
+// block status).
 func (s *Store) IsFriend(granterID, granteeID int64) (bool, error) {
-	var exists bool
-	err := s.db.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM relationships
-			WHERE granter_id = ? AND grantee_id = ? AND relation_type = 'friend'
-		)
-	`, granterID, granteeID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("check friend (%d,%d): %w", granterID, granteeID, err)
-	}
-	return exists, nil
+	return s.relationshipFlagSet(granterID, granteeID, "is_friend")
 }
 
-// IsBlocked reports whether granterID has blocked granteeID.
+// IsBlocked reports whether granterID has blocked granteeID (regardless of
+// friend status).
 func (s *Store) IsBlocked(granterID, granteeID int64) (bool, error) {
+	return s.relationshipFlagSet(granterID, granteeID, "is_blocked")
+}
+
+func (s *Store) relationshipFlagSet(granterID, granteeID int64, flagColumn string) (bool, error) {
 	var exists bool
-	err := s.db.QueryRow(`
+	err := s.db.QueryRow(fmt.Sprintf(`
 		SELECT EXISTS(
 			SELECT 1 FROM relationships
-			WHERE granter_id = ? AND grantee_id = ? AND relation_type = 'block'
+			WHERE granter_id = ? AND grantee_id = ? AND %s = 1
 		)
-	`, granterID, granteeID).Scan(&exists)
+	`, flagColumn), granterID, granteeID).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("check blocked (%d,%d): %w", granterID, granteeID, err)
+		return false, fmt.Errorf("check relationship flag %s (%d,%d): %w", flagColumn, granterID, granteeID, err)
 	}
 	return exists, nil
 }
 
-// FriendIDs returns the ids of every user ownerID has marked as a friend.
+// FriendIDs returns the ids of every user ownerID has marked as a friend,
+// including frenemies (also blocked). Backs /friend_list.
 func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
-	return s.relationshipIDs(ownerID, "friend")
+	return s.relationshipIDs(ownerID, "is_friend = 1")
 }
 
-// BlockIDs returns the ids of every user ownerID has blocked.
+// BlockIDs returns the ids of every user ownerID has blocked, including
+// frenemies (also a friend).
 func (s *Store) BlockIDs(ownerID int64) ([]int64, error) {
-	return s.relationshipIDs(ownerID, "block")
+	return s.relationshipIDs(ownerID, "is_blocked = 1")
 }
 
-func (s *Store) relationshipIDs(granterID int64, relationType string) ([]int64, error) {
-	rows, err := s.db.Query(`
-		SELECT grantee_id FROM relationships WHERE granter_id = ? AND relation_type = ?
-	`, granterID, relationType)
+// AllowedFriendIDs returns the ids of every user ownerID has friended and
+// has not also blocked - the actual auto-allow set for overwrite building.
+func (s *Store) AllowedFriendIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "is_friend = 1 AND is_blocked = 0")
+}
+
+// FrenemyIDs returns the ids of every user ownerID has both friended and
+// blocked.
+func (s *Store) FrenemyIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "is_friend = 1 AND is_blocked = 1")
+}
+
+func (s *Store) relationshipIDs(granterID int64, predicate string) ([]int64, error) {
+	rows, err := s.db.Query(fmt.Sprintf(`
+		SELECT grantee_id FROM relationships WHERE granter_id = ? AND %s
+	`, predicate), granterID)
 	if err != nil {
-		return nil, fmt.Errorf("query %s ids for %d: %w", relationType, granterID, err)
+		return nil, fmt.Errorf("query relationship ids (%s) for %d: %w", predicate, granterID, err)
 	}
 	defer rows.Close()
 
@@ -196,7 +214,7 @@ func (s *Store) relationshipIDs(granterID int64, relationType string) ([]int64, 
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("scan %s id: %w", relationType, err)
+			return nil, fmt.Errorf("scan relationship id: %w", err)
 		}
 		ids = append(ids, id)
 	}

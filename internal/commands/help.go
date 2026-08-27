@@ -13,6 +13,7 @@ const helpText = `**xlparties commands**
 ` + "`/enemy_add user`" + ` — add an enemy, blocking them from your party by default
 ` + "`/enemy_remove user`" + ` — remove an enemy
 ` + "`/enemy_list`" + ` — list your enemies
+Friend and enemy status are independent - blocking a friend (or friending an enemy) makes them a frenemy; a block always wins over access.
 ` + "`/party_allow user`" + ` — allow a user into your current party (overrides defaults)
 ` + "`/party_block user`" + ` — block a user from your current party (overrides defaults)
 ` + "`/party_kick user`" + ` — kick a user from your current party voice channel

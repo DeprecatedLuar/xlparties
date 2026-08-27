@@ -43,7 +43,7 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		logger.Info("party channel no longer exists on Discord, reclaiming slot", "channel", existing.ChannelID, "owner", ownerID)
 	}
 
-	friendIDs, err := m.store.FriendIDs(ownerID)
+	friendIDs, err := m.store.AllowedFriendIDs(ownerID)
 	if err != nil {
 		return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
 	}

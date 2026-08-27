@@ -18,15 +18,37 @@ func handleEnemyList(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 		return
 	}
 
-	ids, err := st.BlockIDs(caller)
+	blockedIDs, err := st.BlockIDs(caller)
 	if err != nil {
 		logger.Error("enemy_list", "error", err)
 		respondEphemeral(s, i, messages.FailedListEnemies)
 		return
 	}
-	if len(ids) == 0 {
+	frenemyIDs, err := st.FrenemyIDs(caller)
+	if err != nil {
+		logger.Error("enemy_list: frenemies", "error", err)
+		respondEphemeral(s, i, messages.FailedListEnemies)
+		return
+	}
+	if len(blockedIDs) == 0 {
 		respondEphemeral(s, i, messages.NoEnemies)
 		return
 	}
-	respondEphemeral(s, i, fmt.Sprintf(messages.EnemyListHeader, mentionList(ids)))
+
+	isFrenemy := make(map[int64]bool, len(frenemyIDs))
+	for _, id := range frenemyIDs {
+		isFrenemy[id] = true
+	}
+	var enemyOnlyIDs []int64
+	for _, id := range blockedIDs {
+		if !isFrenemy[id] {
+			enemyOnlyIDs = append(enemyOnlyIDs, id)
+		}
+	}
+
+	body := fmt.Sprintf(messages.EnemyListHeader, mentionListOr(enemyOnlyIDs, messages.NoOverrides))
+	if len(frenemyIDs) > 0 {
+		body += fmt.Sprintf(messages.FrenemyListSection, mentionList(frenemyIDs))
+	}
+	respondEphemeral(s, i, body)
 }

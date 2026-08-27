@@ -279,3 +279,84 @@ func TestUpdateAccessMode(t *testing.T) {
 		t.Fatal("UpdateAccessMode with an invalid mode should fail the access_mode CHECK constraint")
 	}
 }
+
+func TestFrenemyFlagsAreIndependent(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, target = int64(1001), int64(2002)
+
+	// Block then friend: both flags should end up set.
+	if err := s.UpsertBlock(owner, target); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+	if err := s.UpsertFriend(owner, target); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if is, err := s.IsBlocked(owner, target); err != nil || !is {
+		t.Fatalf("IsBlocked after block-then-friend = (%v, %v), want (true, nil)", is, err)
+	}
+	if is, err := s.IsFriend(owner, target); err != nil || !is {
+		t.Fatalf("IsFriend after block-then-friend = (%v, %v), want (true, nil)", is, err)
+	}
+
+	// Friend-then-block on a fresh pair should leave the same shape.
+	const owner2, target2 = int64(3003), int64(4004)
+	if err := s.UpsertFriend(owner2, target2); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if err := s.UpsertBlock(owner2, target2); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+	if is, err := s.IsFriend(owner2, target2); err != nil || !is {
+		t.Fatalf("IsFriend after friend-then-block = (%v, %v), want (true, nil)", is, err)
+	}
+	if is, err := s.IsBlocked(owner2, target2); err != nil || !is {
+		t.Fatalf("IsBlocked after friend-then-block = (%v, %v), want (true, nil)", is, err)
+	}
+
+	// AllowedFriendIDs excludes a frenemy; FriendIDs still includes them.
+	allowed, err := s.AllowedFriendIDs(owner)
+	if err != nil {
+		t.Fatalf("AllowedFriendIDs: %v", err)
+	}
+	if len(allowed) != 0 {
+		t.Fatalf("AllowedFriendIDs = %v, want empty (target is a frenemy)", allowed)
+	}
+	friends, err := s.FriendIDs(owner)
+	if err != nil {
+		t.Fatalf("FriendIDs: %v", err)
+	}
+	if len(friends) != 1 || friends[0] != target {
+		t.Fatalf("FriendIDs = %v, want [%d]", friends, target)
+	}
+	frenemies, err := s.FrenemyIDs(owner)
+	if err != nil {
+		t.Fatalf("FrenemyIDs: %v", err)
+	}
+	if len(frenemies) != 1 || frenemies[0] != target {
+		t.Fatalf("FrenemyIDs = %v, want [%d]", frenemies, target)
+	}
+
+	// Removing one flag leaves the other standing.
+	if err := s.RemoveBlock(owner, target); err != nil {
+		t.Fatalf("RemoveBlock: %v", err)
+	}
+	if is, err := s.IsBlocked(owner, target); err != nil || is {
+		t.Fatalf("IsBlocked after RemoveBlock = (%v, %v), want (false, nil)", is, err)
+	}
+	if is, err := s.IsFriend(owner, target); err != nil || !is {
+		t.Fatalf("IsFriend after RemoveBlock = (%v, %v), want (true, nil)", is, err)
+	}
+
+	// Removing both flags deletes the row.
+	if err := s.RemoveFriend(owner, target); err != nil {
+		t.Fatalf("RemoveFriend: %v", err)
+	}
+	var rowCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM relationships WHERE granter_id = ? AND grantee_id = ?`, owner, target).Scan(&rowCount); err != nil {
+		t.Fatalf("count relationship rows: %v", err)
+	}
+	if rowCount != 0 {
+		t.Fatalf("relationship row still present after clearing both flags, count = %d", rowCount)
+	}
+}

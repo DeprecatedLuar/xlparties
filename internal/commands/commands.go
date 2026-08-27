@@ -143,14 +143,12 @@ func userOption(description string) *discordgo.ApplicationCommandOption {
 type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)
 
 var handlers = map[string]handlerFunc{
-	"friend_list":  handleFriendList,
-	"enemy_add":    handleEnemyAdd,
-	"enemy_remove": handleEnemyRemove,
-	"enemy_list":   handleEnemyList,
-	"party_kick":   handlePartyKick,
-	"party_info":   handlePartyInfo,
-	"configure":    handleConfigure,
-	"help":         handleHelp,
+	"friend_list": handleFriendList,
+	"enemy_list":  handleEnemyList,
+	"party_kick":  handlePartyKick,
+	"party_info":  handlePartyInfo,
+	"configure":   handleConfigure,
+	"help":        handleHelp,
 }
 
 // Register creates every command guild-scoped and wires interaction routing.
@@ -182,6 +180,14 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 		}
 		if name == "friend_remove" {
 			handleFriendRemove(s, i, st, partyManager)
+			return
+		}
+		if name == "enemy_add" {
+			handleEnemyAdd(s, i, st, partyManager)
+			return
+		}
+		if name == "enemy_remove" {
+			handleEnemyRemove(s, i, st, partyManager)
 			return
 		}
 		if name == "party_mode" {

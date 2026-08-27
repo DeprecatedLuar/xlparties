@@ -51,6 +51,52 @@ func migrateSchema(db *sql.DB) error {
 	if err := migratePartiesAccessModeCheck(db); err != nil {
 		return fmt.Errorf("widen parties.access_mode check: %w", err)
 	}
+	if err := migrateRelationshipsFlags(db); err != nil {
+		return fmt.Errorf("migrate relationships to friend/block flags: %w", err)
+	}
+	return nil
+}
+
+// migrateRelationshipsFlags rebuilds the relationships table if it still
+// carries the old single-slot relation_type column, replacing it with
+// independent is_friend/is_blocked flags. A no-op once the table already
+// matches schema.sql.
+func migrateRelationshipsFlags(db *sql.DB) error {
+	var tableSQL sql.NullString
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'relationships'`).Scan(&tableSQL)
+	if err == sql.ErrNoRows {
+		return nil // fresh schema.sql apply already created the current shape
+	}
+	if err != nil {
+		return fmt.Errorf("read relationships table definition: %w", err)
+	}
+	if strings.Contains(tableSQL.String, "is_friend") {
+		return nil // already current
+	}
+
+	statements := []string{
+		"PRAGMA foreign_keys = OFF",
+		`CREATE TABLE relationships_new (
+			granter_id INTEGER NOT NULL REFERENCES users(id),
+			grantee_id INTEGER NOT NULL REFERENCES users(id),
+			is_friend  INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0,1)),
+			is_blocked INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0,1)),
+			created_at INTEGER NOT NULL,
+			PRIMARY KEY (granter_id, grantee_id)
+		)`,
+		`INSERT INTO relationships_new (granter_id, grantee_id, is_friend, is_blocked, created_at)
+			SELECT granter_id, grantee_id, relation_type = 'friend', relation_type = 'block', created_at FROM relationships`,
+		`DROP TABLE relationships`,
+		`ALTER TABLE relationships_new RENAME TO relationships`,
+		`CREATE INDEX IF NOT EXISTS idx_grantee ON relationships(grantee_id)`,
+		"PRAGMA foreign_keys = ON",
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec %q: %w", stmt, err)
+		}
+	}
+	logger.Info("store: migrated schema, split relationships.relation_type into is_friend/is_blocked flags")
 	return nil
 }
 

@@ -53,10 +53,11 @@ const (
 
 // /friend_add
 const (
-	FailedAddFriend  = "failed to add friend"
-	AlreadyFriend    = "<@%d> seems to already be your acquaintance"
-	FriendAdded      = "Now you and <@%d> shall be besties. Yipee"
-	FriendAddedNotif = " ## %s\nIt seems <@%d> added you as a friend in **%s**.\nI would never do that _but_ you can use `/friend_add` (in the server) and pick <@%d> as the user to add them back"
+	FailedAddFriend         = "failed to add friend"
+	AlreadyFriend           = "<@%d> seems to already be your acquaintance"
+	FriendAdded             = "Now you and <@%d> shall be besties. Yipee"
+	FriendAddedStillBlocked = "<@%d> is on your friend list now, but you still have them blocked - they remain locked out until you `/enemy_remove` them too"
+	FriendAddedNotif        = " ## %s\nIt seems <@%d> added you as a friend in **%s**.\nI would never do that _but_ you can use `/friend_add` (in the server) and pick <@%d> as the user to add them back"
 )
 
 // /friend_remove
@@ -67,8 +68,9 @@ const (
 
 // /enemy_add
 const (
-	FailedAddEnemy = "Errm... it seems *I* failed to add the enemy (please panic)"
-	EnemyAdded     = "<@%d> is now your ENEMY and won't be able to join your parties any longer (as long as you're the owner)"
+	FailedAddEnemy        = "Errm... it seems *I* failed to add the enemy (please panic)"
+	EnemyAdded            = "<@%d> is now your ENEMY and won't be able to join your parties any longer (as long as you're the owner)"
+	EnemyAddedStillFriend = "<@%d> is now blocked, but they're still on your friend list too - a frenemy. They stay locked out until you `/friend_remove` them or `/enemy_remove` the block"
 )
 
 // /enemy_remove
@@ -79,12 +81,13 @@ const (
 
 // /friend_list, /enemy_list
 const (
-	FailedListFriends = "failed to list friends"
-	FailedListEnemies = "failed to list enemies"
-	NoFriends         = "you have no friends yet"
-	NoEnemies         = "you have no enemies yet"
-	FriendListHeader  = "**Your friends:**\n%s"
-	EnemyListHeader   = "**Your enemies:**\n%s"
+	FailedListFriends  = "failed to list friends"
+	FailedListEnemies  = "failed to list enemies"
+	NoFriends          = "you have no friends yet"
+	NoEnemies          = "you have no enemies yet"
+	FriendListHeader   = "**Your friends:**\n%s"
+	EnemyListHeader    = "**Your enemies:**\n%s"
+	FrenemyListSection = "\n\n**Frenemies (friended but blocked):**\n%s"
 )
 
 // /party_info
