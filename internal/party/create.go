@@ -43,9 +43,14 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		logger.Info("party channel no longer exists on Discord, reclaiming slot", "channel", existing.ChannelID, "owner", ownerID)
 	}
 
-	friendIDs, err := m.store.AllowedFriendIDs(ownerID)
-	if err != nil {
-		return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
+	mode := store.DefaultAccessMode
+
+	var friendIDs []int64
+	if mode != store.AccessModePublic {
+		friendIDs, err = m.store.AllowedFriendIDs(ownerID)
+		if err != nil {
+			return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
+		}
 	}
 
 	categoryID, _, err := m.store.GetConfig(store.ConfigKeyCategory)
@@ -65,11 +70,21 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		}
 	}()
 
+	blockedIDs, err := m.store.BlockIDs(ownerID)
+	if err != nil {
+		return fmt.Errorf("load blocked users for owner %d: %w", ownerID, err)
+	}
+
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, ownerID, mode, friendIDs, nil, nil, blockedIDs, nil)
+	if err != nil {
+		return fmt.Errorf("build overwrites for owner %d: %w", ownerID, err)
+	}
+
 	channel, err := m.session.GuildChannelCreateComplex(m.guildID, discordgo.GuildChannelCreateData{
 		Name:                 naming.Generate(),
 		Type:                 discordgo.ChannelTypeGuildVoice,
 		ParentID:             categoryID, // empty string creates at guild root
-		PermissionOverwrites: buildCreationOverwrites(m.guildID, ownerID, friendIDs),
+		PermissionOverwrites: overwrites,
 	})
 	if err != nil {
 		return fmt.Errorf("create party channel for owner %d: %w", ownerID, err)
@@ -79,7 +94,7 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	if err != nil {
 		return fmt.Errorf("parse created channel id %q: %w", channel.ID, err)
 	}
-	if err := m.store.InsertParty(channelID, ownerID); err != nil {
+	if err := m.store.InsertParty(channelID, ownerID, mode); err != nil {
 		if _, delErr := m.session.ChannelDelete(channel.ID); delErr != nil {
 			logger.Error("rollback: delete channel after failed party insert", "channel", channelID, "error", delErr)
 		}
@@ -92,10 +107,14 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	}
 
 	// Send salutations message to the new channel's text chat
-	if _, err := m.session.ChannelMessageSend(channel.ID, fmt.Sprintf(messages.PartyCreated, ownerID, len(friendIDs))); err != nil {
+	salutation := fmt.Sprintf(messages.PartyCreated, ownerID, len(friendIDs))
+	if mode == store.AccessModePublic {
+		salutation = fmt.Sprintf(messages.PartyCreatedPublic, ownerID)
+	}
+	if _, err := m.session.ChannelMessageSend(channel.ID, salutation); err != nil {
 		logger.Error("party creation: post salutations", "channel", channelID, "error", err)
 	}
-	if len(friendIDs) == 0 {
+	if mode != store.AccessModePublic && len(friendIDs) == 0 {
 		if _, err := m.session.ChannelMessageSend(channel.ID, messages.PartyCreatedNoFriendsWarning); err != nil {
 			logger.Error("party creation: post no-friends warning", "channel", channelID, "error", err)
 		}

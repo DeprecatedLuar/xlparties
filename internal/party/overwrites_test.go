@@ -287,6 +287,42 @@ func TestBuildRewriteOverwritesPendingInviteStillWinsOverGlobalBlock(t *testing.
 	}
 }
 
+func TestBuildRewriteOverwritesPublicCreationHasNoSourcesInvitesOrOverrides(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, blocked = int64(1001), int64(4001)
+
+	overwrites, err := buildRewriteOverwrites(s, guildID, owner, store.AccessModePublic, nil, nil, nil, []int64{blocked}, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	var everyone *discordgo.PermissionOverwrite
+	memberOverwrites := make(map[string]*discordgo.PermissionOverwrite)
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeRole && ow.ID == guildID {
+			everyone = ow
+		}
+		if ow.Type == discordgo.PermissionOverwriteTypeMember {
+			memberOverwrites[ow.ID] = ow
+		}
+	}
+
+	if everyone == nil || everyone.Allow&PartyChannelPermissions != PartyChannelPermissions {
+		t.Fatalf("expected @everyone to be allowed, got %+v", everyone)
+	}
+	if ow := memberOverwrites[formatID(owner)]; ow == nil || ow.Allow&PartyChannelPermissions != PartyChannelPermissions {
+		t.Errorf("expected owner %d to be allowed, got %+v", owner, ow)
+	}
+	if ow := memberOverwrites[formatID(blocked)]; ow == nil || ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
+		t.Errorf("expected globally-blocked user %d to be denied, got %+v", blocked, ow)
+	}
+	if len(memberOverwrites) != 2 {
+		t.Errorf("expected exactly owner + blocked member overwrites, got %v", memberOverwrites)
+	}
+}
+
 func formatID(id int64) string {
 	return memberOverwrite(id, true).ID
 }

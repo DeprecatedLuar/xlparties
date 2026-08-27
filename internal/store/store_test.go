@@ -89,7 +89,7 @@ func TestPartySources(t *testing.T) {
 
 	const channel, owner, sourceA, sourceB = int64(9001), int64(1001), int64(2002), int64(3003)
 
-	if err := s.InsertParty(channel, owner); err != nil {
+	if err := s.InsertParty(channel, owner, AccessModeFriendsOfFriends); err != nil {
 		t.Fatalf("InsertParty: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestPartyInvites(t *testing.T) {
 	s := openTestStore(t)
 
 	const channel, owner, invitee, otherInvitee = int64(9001), int64(1001), int64(4001), int64(4002)
-	if err := s.InsertParty(channel, owner); err != nil {
+	if err := s.InsertParty(channel, owner, AccessModeFriendsOfFriends); err != nil {
 		t.Fatalf("InsertParty: %v", err)
 	}
 
@@ -258,7 +258,7 @@ func TestUpdateAccessMode(t *testing.T) {
 	s := openTestStore(t)
 
 	const channel, owner = int64(9001), int64(1001)
-	if err := s.InsertParty(channel, owner); err != nil {
+	if err := s.InsertParty(channel, owner, AccessModeFriendsOfFriends); err != nil {
 		t.Fatalf("InsertParty: %v", err)
 	}
 

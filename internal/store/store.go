@@ -29,6 +29,10 @@ const (
 	AccessModePublic           = "public"
 )
 
+// DefaultAccessMode is the mode a party is created in when nothing else
+// (e.g. a future saved preset) resolves a different one.
+const DefaultAccessMode = AccessModePublic
+
 // Store wraps the database connection and exposes all query methods.
 type Store struct {
 	db *sql.DB
@@ -250,11 +254,12 @@ func (s *Store) SetConfig(key, value string) error {
 
 // --- parties ---
 
-// InsertParty records a newly created party channel.
-func (s *Store) InsertParty(channelID, ownerID int64) error {
+// InsertParty records a newly created party channel with the given access
+// mode.
+func (s *Store) InsertParty(channelID, ownerID int64, mode string) error {
 	_, err := s.db.Exec(`
-		INSERT INTO parties (channel_id, owner_id, created_at) VALUES (?, ?, ?)
-	`, channelID, ownerID, time.Now().Unix())
+		INSERT INTO parties (channel_id, owner_id, created_at, access_mode) VALUES (?, ?, ?, ?)
+	`, channelID, ownerID, time.Now().Unix(), mode)
 	if err != nil {
 		return fmt.Errorf("insert party %d: %w", channelID, err)
 	}

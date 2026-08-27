@@ -14,32 +14,13 @@ import (
 // the party_allow/party_block commands write the same pair to a single overwrite.
 const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect
 
-// buildCreationOverwrites returns the full overwrite set for a new party
-// channel: @everyone denied, the owner allowed, and
-// each of the owner's friends allowed.
-func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) []*discordgo.PermissionOverwrite {
-	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(friendIDs)+2)
-
-	overwrites = append(overwrites, &discordgo.PermissionOverwrite{
-		ID:   guildID, // @everyone role id equals the guild id
-		Type: discordgo.PermissionOverwriteTypeRole,
-		Deny: PartyChannelPermissions,
-	})
-
-	overwrites = append(overwrites, memberOverwrite(ownerID, true))
-	for _, friendID := range friendIDs {
-		overwrites = append(overwrites, memberOverwrite(friendID, true))
-	}
-
-	return overwrites
-}
-
-// buildRewriteOverwrites returns the full overwrite set for a party channel
-// after an ownership handoff or mode change:
-// in every mode except public, @everyone is denied, the new owner and their
-// friends are allowed, then each active friends-of-friends source's own
-// friends folded in. In public mode this flips: @everyone is allowed by
-// default instead.
+// buildRewriteOverwrites returns the full overwrite set for a party channel.
+// It serves both creation and an ownership handoff or mode change: in every
+// mode except public, @everyone is denied, the owner and their friends are
+// allowed, then each active friends-of-friends source's own friends folded
+// in. In public mode this flips: @everyone is allowed by default instead.
+// At creation there are no sources, pending invites, or overrides, so those
+// arguments are nil.
 //
 // In every mode, the owner's globally-blocked users (blockedIDs) are then
 // applied as denies, so a block always beats an automatic allow (friend,

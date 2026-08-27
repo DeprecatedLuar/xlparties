@@ -190,7 +190,7 @@ func (m *Manager) reconcileInvites() {
 // row (see spawnParty in create.go). Any party_pending_creations row still
 // present at startup is from that interrupted run - this process never got
 // far enough to learn the channel id, so the only reliable way back to the
-// leaked channel is the owner-specific member overwrite buildCreationOverwrites
+// leaked channel is the owner-specific member overwrite buildRewriteOverwrites
 // stamps on every channel it creates. A pending row that matches no channel
 // just means the create call never reached Discord before the crash.
 func (m *Manager) ReconcileStaleCreations() {
@@ -243,7 +243,7 @@ func (m *Manager) ReconcileStaleCreations() {
 
 // leakedChannelForOwner finds the untracked voice channel in categoryID that
 // carries a member overwrite allowing ownerID the party permission pair -
-// the same stamp buildCreationOverwrites puts on the owner's slot at
+// the same stamp buildRewriteOverwrites puts on the owner's slot at
 // creation - which is the specific channel a given interrupted creation
 // would have produced.
 func leakedChannelForOwner(channels []*discordgo.Channel, categoryID string, tracked map[int64]struct{}, ownerID int64) (int64, bool) {
