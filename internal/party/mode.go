@@ -8,8 +8,8 @@ import (
 	"xlparties/internal/store"
 )
 
-// SetAccessMode switches channelID's access mode, per spec.md Per-Channel
-// Access Modes, persists it, and rewrites the channel's overwrites to match.
+// SetAccessMode switches channelID's access mode, persists it, and rewrites
+// the channel's overwrites to match.
 // Leaving friends_of_friends drops all active scan sources and cancels
 // their timers, since neither applies outside that mode. Entering
 // friends_of_friends arms a fresh join-maturation timer for every non-owner

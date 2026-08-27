@@ -15,7 +15,7 @@ import (
 const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect
 
 // buildCreationOverwrites returns the full overwrite set for a new party
-// channel per spec.md Creation: @everyone denied, the owner allowed, and
+// channel: @everyone denied, the owner allowed, and
 // each of the owner's friends allowed.
 func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) []*discordgo.PermissionOverwrite {
 	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(friendIDs)+2)
@@ -35,7 +35,7 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 }
 
 // buildRewriteOverwrites returns the full overwrite set for a party channel
-// after an ownership handoff or mode change, per spec.md Ownership Rewrite:
+// after an ownership handoff or mode change:
 // in every mode except public, @everyone is denied, the new owner and their
 // friends are allowed, then each active friends-of-friends source's own
 // friends folded in, then each pending /party_invite grant, then each
@@ -50,7 +50,7 @@ func buildCreationOverwrites(guildID string, ownerID int64, friendIDs []int64) [
 //
 // sourceIDs are the channel's active friends-of-friends scan sources
 // (party_sources); their friend lists are crawled live rather than stored,
-// per spec.md's "store what cannot be derived" rule.
+// following the "store only what cannot be derived" rule.
 func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, mode string, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, blockedIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
 	isPublic := mode == store.AccessModePublic
 

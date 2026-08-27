@@ -54,15 +54,9 @@ logs
 *.kra
 
 # Purpose and planning files
-vision.md
-CLAUDE.md
-GEMINI.md
-gemini.md
-implementation-plan.md
-implementation-history.md
+*.md
+*.txt
 .env
-*doc.md
-doc.md
 
 # Whitelist
 !README.md

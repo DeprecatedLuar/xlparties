@@ -91,7 +91,7 @@ type sweepResult struct {
 }
 
 // StartupSweep reconciles the parties table against live Discord state after
-// a restart, per spec.md Cleanup: rows whose channel no longer exists are
+// a restart: rows whose channel no longer exists are
 // removed, channels found empty get a fresh grace period, and non-empty
 // channels resume with ownership re-evaluated against current membership.
 func (m *Manager) StartupSweep() {

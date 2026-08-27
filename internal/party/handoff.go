@@ -89,8 +89,8 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 
 // rewriteOverwrites recomputes and applies the full overwrite set for
 // channelID against ownerID's current friends, the channel's active
-// friends-of-friends sources, and the channel's manual party_overrides, per
-// spec.md Ownership Rewrite. Sources survive the handoff - they belong to
+// friends-of-friends sources, and the channel's manual party_overrides.
+// Sources survive the handoff - they belong to
 // the channel, not the owner. In invite_only mode the owner's friend list is
 // excluded entirely - only the owner and explicit party_overrides allow rows
 // grant access. In public mode the owner's friend list is likewise excluded
