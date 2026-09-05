@@ -103,7 +103,7 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 		return 0, false, fmt.Errorf("load blocked users for owner %d: %w", ownerID, err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.botID, ownerID, mode, friendIDs, nil, nil, blockedIDs, nil)
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.alwaysAllowedRoleIDs, m.botID, ownerID, mode, friendIDs, nil, nil, blockedIDs, nil)
 	if err != nil {
 		return 0, false, fmt.Errorf("build overwrites for owner %d: %w", ownerID, err)
 	}

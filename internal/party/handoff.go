@@ -130,7 +130,7 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 		return fmt.Errorf("load overrides for channel %d: %w", channelID, err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.botID, ownerID, current.AccessMode, friendIDs, sourceIDs, pendingInviteIDs, blockedIDs, overrides)
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.alwaysAllowedRoleIDs, m.botID, ownerID, current.AccessMode, friendIDs, sourceIDs, pendingInviteIDs, blockedIDs, overrides)
 	if err != nil {
 		return fmt.Errorf("build overwrites for channel %d: %w", channelID, err)
 	}

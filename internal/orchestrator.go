@@ -56,7 +56,12 @@ func Run() error {
 		logger.Error("permission check failed", "error", err)
 	}
 
-	partyManager := party.NewManager(session, st, guildID, botID,
+	alwaysAllowedRoleIDs, err := resolveAlwaysAllowedRoles(session, guildID, cfg.AlwaysAllowedRoles)
+	if err != nil {
+		return err
+	}
+
+	partyManager := party.NewManager(session, st, guildID, botID, alwaysAllowedRoleIDs,
 		time.Duration(cfg.EmptyCleanupSeconds)*time.Second,
 		time.Duration(cfg.OwnerAbsenceHandoffSeconds)*time.Second,
 		time.Duration(cfg.InviteExpirySeconds)*time.Second,

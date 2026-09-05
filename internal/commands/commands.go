@@ -273,6 +273,10 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 			handlePartyInvite(s, i, st, partyManager)
 			return
 		}
+		if name == "party_allow" {
+			handlePartyAllow(s, i, st, partyManager)
+			return
+		}
 		if name == "party_block" {
 			handlePartyBlock(s, i, st, partyManager)
 			return

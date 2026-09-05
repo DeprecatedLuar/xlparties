@@ -20,6 +20,11 @@ type Manager struct {
 	guildID string
 	botID   int64
 
+	// alwaysAllowedRoleIDs get a role allow on every party channel in every
+	// mode (ALWAYS_ALLOWED_ROLES, resolved from names at startup). See
+	// buildRewriteOverwrites.
+	alwaysAllowedRoleIDs []string
+
 	emptyCleanup        time.Duration
 	ownerAbsenceHandoff time.Duration
 	inviteExpiry        time.Duration
@@ -40,20 +45,21 @@ type Manager struct {
 
 // NewManager constructs a Manager. Call Register to start listening for the
 // events that drive the lifecycle.
-func NewManager(session *discordgo.Session, st *store.Store, guildID string, botID int64, emptyCleanup, ownerAbsenceHandoff, inviteExpiry time.Duration) *Manager {
+func NewManager(session *discordgo.Session, st *store.Store, guildID string, botID int64, alwaysAllowedRoleIDs []string, emptyCleanup, ownerAbsenceHandoff, inviteExpiry time.Duration) *Manager {
 	return &Manager{
-		session:             session,
-		store:               st,
-		guildID:             guildID,
-		botID:               botID,
-		emptyCleanup:        emptyCleanup,
-		ownerAbsenceHandoff: ownerAbsenceHandoff,
-		inviteExpiry:        inviteExpiry,
-		handoffTimers:       make(map[int64]*time.Timer),
-		cleanupTimers:       make(map[int64]*time.Timer),
-		fofJoinTimers:       make(map[int64]map[int64]*time.Timer),
-		fofLeaveTimers:      make(map[int64]map[int64]*time.Timer),
-		inviteTimers:        make(map[int64]map[int64]*time.Timer),
+		session:              session,
+		store:                st,
+		guildID:              guildID,
+		botID:                botID,
+		alwaysAllowedRoleIDs: alwaysAllowedRoleIDs,
+		emptyCleanup:         emptyCleanup,
+		ownerAbsenceHandoff:  ownerAbsenceHandoff,
+		inviteExpiry:         inviteExpiry,
+		handoffTimers:        make(map[int64]*time.Timer),
+		cleanupTimers:        make(map[int64]*time.Timer),
+		fofJoinTimers:        make(map[int64]map[int64]*time.Timer),
+		fofLeaveTimers:       make(map[int64]map[int64]*time.Timer),
+		inviteTimers:         make(map[int64]map[int64]*time.Timer),
 	}
 }
 

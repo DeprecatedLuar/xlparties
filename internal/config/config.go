@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 
@@ -19,7 +20,13 @@ const (
 
 	appDataDirName = "xlparties"
 	dbFileName     = "xlparties.db"
+
+	listSeparator = ","
 )
+
+// AlwaysAllowedRolesEnv is the variable holding the comma-separated role
+// names. Exported so the error path that resolves those names can name it.
+const AlwaysAllowedRolesEnv = "ALWAYS_ALLOWED_ROLES"
 
 // Config holds deploy-time settings read from .env / the process environment.
 type Config struct {
@@ -30,6 +37,12 @@ type Config struct {
 	EmptyCleanupSeconds        int
 	OwnerAbsenceHandoffSeconds int
 	InviteExpirySeconds        int
+
+	// AlwaysAllowedRoles are guild role names (not ids) that get an allow
+	// overwrite on every party channel in every access mode - the way a music
+	// bot or a staff role gets into an otherwise private party. Names are
+	// resolved to ids against the live guild at startup.
+	AlwaysAllowedRoles []string
 }
 
 // Load reads .env (if present) and the process environment into a Config.
@@ -75,6 +88,7 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
+		AlwaysAllowedRoles:         splitList(os.Getenv(AlwaysAllowedRolesEnv)),
 		DiscordToken:               token,
 		DiscordAppID:               os.Getenv("DISCORD_APP_ID"),
 		DiscordPublicKey:           os.Getenv("DISCORD_PUBLIC_KEY"),
@@ -98,6 +112,18 @@ func defaultDBPath() (string, error) {
 		dataHome = filepath.Join(home, ".local", "share")
 	}
 	return filepath.Join(dataHome, appDataDirName, dbFileName), nil
+}
+
+// splitList turns a comma-separated env value into a trimmed list, dropping
+// empty entries so trailing separators and spacing are harmless.
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, listSeparator) {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func intEnvOrDefault(key string, def int) (int, error) {

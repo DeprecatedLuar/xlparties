@@ -34,7 +34,14 @@ const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.Perm
 // sourceIDs are the channel's active friends-of-friends scan sources
 // (party_sources); their friend lists are crawled live rather than stored,
 // following the "store only what cannot be derived" rule.
-func buildRewriteOverwrites(st *store.Store, guildID string, botID, ownerID int64, mode string, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, blockedIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
+//
+// alwaysAllowedRoleIDs (from ALWAYS_ALLOWED_ROLES) get a role-level allow on
+// every channel in every mode - how a music bot or a staff role gets into an
+// otherwise private party. Discord evaluates role allows after the @everyone
+// deny, so this grants access in every default-deny mode; it does not protect
+// against an owner's /party_block, since member overwrites are evaluated after
+// role ones.
+func buildRewriteOverwrites(st *store.Store, guildID string, alwaysAllowedRoleIDs []string, botID, ownerID int64, mode string, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, blockedIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
 	isPublic := mode == store.AccessModePublic
 
 	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+len(pendingInviteIDs)+len(blockedIDs)+1+len(overrides))
@@ -78,8 +85,15 @@ func buildRewriteOverwrites(st *store.Store, guildID string, botID, ownerID int6
 		everyone.Deny = PartyChannelPermissions
 	}
 
-	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(allow)+1)
+	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(allow)+len(alwaysAllowedRoleIDs)+1)
 	overwrites = append(overwrites, everyone)
+	for _, roleID := range alwaysAllowedRoleIDs {
+		overwrites = append(overwrites, &discordgo.PermissionOverwrite{
+			ID:    roleID,
+			Type:  discordgo.PermissionOverwriteTypeRole,
+			Allow: PartyChannelPermissions,
+		})
+	}
 	for userID, allowed := range allow {
 		overwrites = append(overwrites, memberOverwrite(userID, allowed))
 	}
