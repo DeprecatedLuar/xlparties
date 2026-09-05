@@ -25,6 +25,9 @@ var expectedColumns = map[string][]column{
 	"parties": {
 		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))"},
 	},
+	"user_presets": {
+		{name: "user_limit", ddl: "INTEGER NOT NULL DEFAULT 0 CHECK (user_limit BETWEEN 0 AND 99)"},
+	},
 }
 
 // migrateSchema adds any column listed in expectedColumns that is missing
@@ -33,6 +36,16 @@ var expectedColumns = map[string][]column{
 // anything already current is left untouched.
 func migrateSchema(db *sql.DB) error {
 	for table, columns := range expectedColumns {
+		exists, err := tableExists(db, table)
+		if err != nil {
+			return fmt.Errorf("check table %s exists: %w", table, err)
+		}
+		if !exists {
+			// schema.sql's CREATE TABLE IF NOT EXISTS already runs before
+			// migrateSchema in Open() and creates the table in its current
+			// (already-columned) shape, so there is nothing to patch here.
+			continue
+		}
 		existing, err := existingColumns(db, table)
 		if err != nil {
 			return fmt.Errorf("read columns for %s: %w", table, err)
@@ -139,6 +152,19 @@ func migratePartiesAccessModeCheck(db *sql.DB) error {
 	}
 	logger.Info("store: migrated schema, widened parties.access_mode check to include public")
 	return nil
+}
+
+// tableExists reports whether table exists in db.
+func tableExists(db *sql.DB, table string) (bool, error) {
+	var name string
+	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&name)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // existingColumns returns the set of column names currently on table.

@@ -15,6 +15,14 @@ import (
 
 var manageGuildPermission = int64(discordgo.PermissionManageGuild)
 
+// limitOptionMin/limitOptionMax mirror internal/party's minUserLimit/
+// maxUserLimit (Discord's own voice channel user_limit bounds), enforced
+// here too so the client-side slash-command UI rejects out-of-range input
+// before it reaches the bot.
+var limitOptionMin = 0.0
+
+const limitOptionMax = 99.0
+
 var specs = []*discordgo.ApplicationCommand{
 	{
 		Name:        "friend_add",
@@ -27,10 +35,6 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as a friend")},
 	},
 	{
-		Name:        "friend_list",
-		Description: "List your friends",
-	},
-	{
 		Name:        "enemy_add",
 		Description: "Add a user as an enemy, blocking them from your party by default",
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as an enemy")},
@@ -41,8 +45,8 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as an enemy")},
 	},
 	{
-		Name:        "enemy_list",
-		Description: "List your enemies",
+		Name:        "relationships",
+		Description: "List your friends, enemies, and frenemies",
 	},
 	{
 		Name:        "party_allow",
@@ -91,8 +95,22 @@ var specs = []*discordgo.ApplicationCommand{
 		Description: "Show this party's type and manual allow/block overrides",
 	},
 	{
+		Name:        "party_limit",
+		Description: "Set your current party's voice channel user limit",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "limit",
+				Description: "User limit, 0-99 (0 = unlimited)",
+				Required:    true,
+				MinValue:    &limitOptionMin,
+				MaxValue:    limitOptionMax,
+			},
+		},
+	},
+	{
 		Name:        "party_preset",
-		Description: "View or set your saved default access mode, applied only when you next create a party",
+		Description: "View or set your saved default access mode and user limit, applied only when you next create a party",
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Type:        discordgo.ApplicationCommandOptionString,
@@ -105,6 +123,13 @@ var specs = []*discordgo.ApplicationCommand{
 					{Name: "Public", Value: store.AccessModePublic},
 					{Name: "Clear (use default)", Value: partyPresetClearValue},
 				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "limit",
+				Description: "Default user limit, 0-99 (0 = unlimited)",
+				MinValue:    &limitOptionMin,
+				MaxValue:    limitOptionMax,
 			},
 		},
 	},
@@ -161,13 +186,12 @@ func userOption(description string) *discordgo.ApplicationCommandOption {
 type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)
 
 var handlers = map[string]handlerFunc{
-	"friend_list":  handleFriendList,
-	"enemy_list":   handleEnemyList,
-	"party_kick":   handlePartyKick,
-	"party_info":   handlePartyInfo,
-	"party_preset": handlePartyPreset,
-	"configure":    handleConfigure,
-	"help":         handleHelp,
+	"relationships": handleRelationships,
+	"party_kick":    handlePartyKick,
+	"party_info":    handlePartyInfo,
+	"party_preset":  handlePartyPreset,
+	"configure":     handleConfigure,
+	"help":          handleHelp,
 }
 
 // Register creates every command guild-scoped and wires interaction routing.
@@ -213,6 +237,10 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 			handlePartyMode(s, i, st, partyManager)
 			return
 		}
+		if name == "party_limit" {
+			handlePartyLimit(s, i, st, partyManager)
+			return
+		}
 		if name == "party_invite" {
 			handlePartyInvite(s, i, st, partyManager)
 			return
@@ -235,6 +263,10 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 		customID := i.MessageComponentData().CustomID
 		if strings.HasPrefix(customID, partyModeComponentPrefix) {
 			handlePartyModeComponent(s, i, st, partyManager)
+			return
+		}
+		if strings.HasPrefix(customID, partyPresetLimitComponentPrefix) {
+			handlePartyPresetLimitComponent(s, i, st)
 			return
 		}
 		if strings.HasPrefix(customID, partyPresetComponentPrefix) {

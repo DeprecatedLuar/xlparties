@@ -192,6 +192,41 @@ func TestMigrateRelationshipsFlags(t *testing.T) {
 	}
 }
 
+func TestMigrateSchemaAddsUserLimitColumn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	defer db.Close()
+
+	// Pre-user_limit user_presets table, as it would exist on a DB created
+	// before that column was added to schema.sql.
+	if _, err := db.Exec(`
+		CREATE TABLE user_presets (
+			user_id     INTEGER PRIMARY KEY,
+			access_mode TEXT NOT NULL CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
+		)
+	`); err != nil {
+		t.Fatalf("create old user_presets table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO user_presets (user_id, access_mode) VALUES (1, 'public')`); err != nil {
+		t.Fatalf("insert row: %v", err)
+	}
+
+	if err := migrateSchema(db); err != nil {
+		t.Fatalf("migrateSchema: %v", err)
+	}
+
+	var userLimit int
+	if err := db.QueryRow(`SELECT user_limit FROM user_presets WHERE user_id = 1`).Scan(&userLimit); err != nil {
+		t.Fatalf("query user_limit after migration: %v", err)
+	}
+	if userLimit != 0 {
+		t.Errorf("user_limit = %d, want 0", userLimit)
+	}
+}
+
 func TestMigrateSchemaIdempotent(t *testing.T) {
 	// Open already runs migrateSchema once; a second call against the same
 	// already-current DB must not error (e.g. duplicate-column).

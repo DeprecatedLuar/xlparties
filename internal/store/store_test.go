@@ -422,3 +422,66 @@ func TestDeletePresetRestoresAbsence(t *testing.T) {
 		t.Fatalf("PresetForUser found = true after DeletePreset, want false")
 	}
 }
+
+func TestPresetLimitRoundTripsIndependentlyOfMode(t *testing.T) {
+	s := openTestStore(t)
+
+	const user = int64(7007)
+
+	if err := s.UpsertPreset(user, AccessModeFriendsOnly); err != nil {
+		t.Fatalf("UpsertPreset: %v", err)
+	}
+	if err := s.UpsertPresetLimit(user, 5); err != nil {
+		t.Fatalf("UpsertPresetLimit: %v", err)
+	}
+
+	mode, found, err := s.PresetForUser(user)
+	if err != nil {
+		t.Fatalf("PresetForUser: %v", err)
+	}
+	if !found || mode != AccessModeFriendsOnly {
+		t.Fatalf("PresetForUser = (%q, %v), want (%q, true)", mode, found, AccessModeFriendsOnly)
+	}
+
+	limit, found, err := s.PresetLimitForUser(user)
+	if err != nil {
+		t.Fatalf("PresetLimitForUser: %v", err)
+	}
+	if !found || limit != 5 {
+		t.Fatalf("PresetLimitForUser = (%d, %v), want (5, true)", limit, found)
+	}
+
+	if err := s.UpsertPresetLimit(user, 9); err != nil {
+		t.Fatalf("UpsertPresetLimit (replace): %v", err)
+	}
+	mode, found, err = s.PresetForUser(user)
+	if err != nil {
+		t.Fatalf("PresetForUser after limit update: %v", err)
+	}
+	if !found || mode != AccessModeFriendsOnly {
+		t.Fatalf("PresetForUser after limit update = (%q, %v), want (%q, true) - mode should be untouched", mode, found, AccessModeFriendsOnly)
+	}
+}
+
+func TestPresetLimitForUserReportsAbsence(t *testing.T) {
+	s := openTestStore(t)
+
+	limit, found, err := s.PresetLimitForUser(8008)
+	if err != nil {
+		t.Fatalf("PresetLimitForUser: %v", err)
+	}
+	if found || limit != 0 {
+		t.Fatalf("PresetLimitForUser = (%d, %v), want (0, false)", limit, found)
+	}
+}
+
+func TestPresetLimitOutOfRangeRejected(t *testing.T) {
+	s := openTestStore(t)
+
+	if err := s.UpsertPresetLimit(9009, 100); err == nil {
+		t.Fatal("UpsertPresetLimit(100) succeeded, want CHECK constraint violation")
+	}
+	if err := s.UpsertPresetLimit(9009, -1); err == nil {
+		t.Fatal("UpsertPresetLimit(-1) succeeded, want CHECK constraint violation")
+	}
+}

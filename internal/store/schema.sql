@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS party_pending_creations (
 -- store.DefaultAccessMode, not a stored value.
 CREATE TABLE IF NOT EXISTS user_presets (
   user_id     INTEGER PRIMARY KEY,
-  access_mode TEXT NOT NULL CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
+  access_mode TEXT NOT NULL CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public')),
+  user_limit  INTEGER NOT NULL DEFAULT 0 CHECK (user_limit BETWEEN 0 AND 99)
 );
 
 CREATE TABLE IF NOT EXISTS config (

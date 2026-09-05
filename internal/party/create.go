@@ -43,9 +43,14 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		logger.Info("party channel no longer exists on Discord, reclaiming slot", "channel", existing.ChannelID, "owner", ownerID)
 	}
 
-	mode, err := resolveAccessMode(m.store, ownerID)
+	mode, hasPreset, err := resolveAccessMode(m.store, ownerID)
 	if err != nil {
 		return fmt.Errorf("resolve access mode for owner %d: %w", ownerID, err)
+	}
+
+	userLimit, err := resolveUserLimit(m.store, ownerID)
+	if err != nil {
+		return fmt.Errorf("resolve user limit for owner %d: %w", ownerID, err)
 	}
 
 	var friendIDs []int64
@@ -88,6 +93,7 @@ func (m *Manager) spawnParty(ownerID int64) error {
 		Type:                 discordgo.ChannelTypeGuildVoice,
 		ParentID:             categoryID, // empty string creates at guild root
 		PermissionOverwrites: overwrites,
+		UserLimit:            userLimit,
 	})
 	if err != nil {
 		return fmt.Errorf("create party channel for owner %d: %w", ownerID, err)
@@ -114,6 +120,9 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	if mode == store.AccessModePublic {
 		salutation = fmt.Sprintf(messages.PartyCreatedPublic, ownerID)
 	}
+	if !hasPreset {
+		salutation += "\n\n" + messages.PartyPresetTip
+	}
 	if _, err := m.session.ChannelMessageSend(channel.ID, salutation); err != nil {
 		logger.Error("party creation: post salutations", "channel", channelID, "error", err)
 	}
@@ -127,18 +136,32 @@ func (m *Manager) spawnParty(ownerID int64) error {
 	return nil
 }
 
-// resolveAccessMode returns ownerID's saved preset mode, falling back to
-// store.DefaultAccessMode when no preset is set. A preset only ever affects
-// the party being created here - it never rewrites an existing one.
-func resolveAccessMode(st *store.Store, ownerID int64) (string, error) {
+// resolveAccessMode returns ownerID's saved preset mode (and whether one is
+// set), falling back to store.DefaultAccessMode when no preset is set. A
+// preset only ever affects the party being created here, it never rewrites
+// an existing one.
+func resolveAccessMode(st *store.Store, ownerID int64) (string, bool, error) {
 	mode, found, err := st.PresetForUser(ownerID)
 	if err != nil {
-		return "", fmt.Errorf("load preset for owner %d: %w", ownerID, err)
+		return "", false, fmt.Errorf("load preset for owner %d: %w", ownerID, err)
 	}
 	if !found {
-		return store.DefaultAccessMode, nil
+		return store.DefaultAccessMode, false, nil
 	}
-	return mode, nil
+	return mode, true, nil
+}
+
+// resolveUserLimit returns ownerID's saved preset user limit, falling back
+// to 0 (unlimited) when no preset is set.
+func resolveUserLimit(st *store.Store, ownerID int64) (int, error) {
+	limit, found, err := st.PresetLimitForUser(ownerID)
+	if err != nil {
+		return 0, fmt.Errorf("load preset limit for owner %d: %w", ownerID, err)
+	}
+	if !found {
+		return 0, nil
+	}
+	return limit, nil
 }
 
 // channelExists reports whether channelID still exists on Discord,

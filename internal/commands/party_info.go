@@ -64,11 +64,35 @@ func handlePartyInfo(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 		presetLine = fmt.Sprintf(messages.PartyPresetCurrent, partyModeLabel[preset])
 	}
 
+	presetLimit, found, err := st.PresetLimitForUser(caller)
+	if err != nil {
+		logger.Error("party_info: lookup preset limit", "error", err)
+		respondEphemeral(s, i, messages.FailedLookupParty)
+		return
+	}
+	presetLimitLine := messages.NoPartyPresetLimit
+	if found && presetLimit != 0 {
+		presetLimitLine = fmt.Sprintf(messages.PartyPresetLimitCurrent, presetLimit)
+	}
+
+	channel, err := s.Channel(i.ChannelID)
+	if err != nil {
+		logger.Error("party_info: fetch channel", "error", err)
+		respondEphemeral(s, i, messages.FailedLookupParty)
+		return
+	}
+	limitDisplay := messages.PartyInfoNoLimit
+	if channel.UserLimit != 0 {
+		limitDisplay = strconv.Itoa(channel.UserLimit)
+	}
+
 	respondEphemeral(s, i, fmt.Sprintf(messages.PartyInfoHeader,
 		partyModeLabel[activeParty.AccessMode],
+		limitDisplay,
 		overrideList(allowedIDs),
 		overrideList(blockedIDs),
 		presetLine,
+		presetLimitLine,
 	))
 }
 

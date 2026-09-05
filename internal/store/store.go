@@ -182,7 +182,7 @@ func (s *Store) relationshipFlagSet(granterID, granteeID int64, flagColumn strin
 }
 
 // FriendIDs returns the ids of every user ownerID has marked as a friend,
-// including frenemies (also blocked). Backs /friend_list.
+// including frenemies (also blocked).
 func (s *Store) FriendIDs(ownerID int64) ([]int64, error) {
 	return s.relationshipIDs(ownerID, "is_friend = 1")
 }
@@ -339,7 +339,8 @@ func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
 // --- user_presets ---
 
 // UpsertPreset sets userID's saved default access mode, applied only at
-// their next party creation.
+// their next party creation. The user_limit column keeps its current value
+// (0 for a new row).
 func (s *Store) UpsertPreset(userID int64, mode string) error {
 	_, err := s.db.Exec(`
 		INSERT INTO user_presets (user_id, access_mode) VALUES (?, ?)
@@ -347,6 +348,20 @@ func (s *Store) UpsertPreset(userID int64, mode string) error {
 	`, userID, mode)
 	if err != nil {
 		return fmt.Errorf("upsert preset for user %d: %w", userID, err)
+	}
+	return nil
+}
+
+// UpsertPresetLimit sets userID's saved default user limit, applied only at
+// their next party creation. The access_mode column keeps its current value
+// (DefaultAccessMode for a new row, satisfying the column's NOT NULL).
+func (s *Store) UpsertPresetLimit(userID int64, limit int) error {
+	_, err := s.db.Exec(`
+		INSERT INTO user_presets (user_id, access_mode, user_limit) VALUES (?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET user_limit = excluded.user_limit
+	`, userID, DefaultAccessMode, limit)
+	if err != nil {
+		return fmt.Errorf("upsert preset limit for user %d: %w", userID, err)
 	}
 	return nil
 }
@@ -363,6 +378,21 @@ func (s *Store) PresetForUser(userID int64) (string, bool, error) {
 		return "", false, fmt.Errorf("get preset for user %d: %w", userID, err)
 	}
 	return mode, true, nil
+}
+
+// PresetLimitForUser returns userID's saved default user limit, and whether
+// a row exists. Absence means no limit (unlimited) applies, not a stored
+// value.
+func (s *Store) PresetLimitForUser(userID int64) (int, bool, error) {
+	var limit int
+	err := s.db.QueryRow(`SELECT user_limit FROM user_presets WHERE user_id = ?`, userID).Scan(&limit)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("get preset limit for user %d: %w", userID, err)
+	}
+	return limit, true, nil
 }
 
 // DeletePreset removes userID's saved preset, returning them to the default.

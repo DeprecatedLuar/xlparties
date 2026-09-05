@@ -41,6 +41,14 @@ const (
 	FailedSetPartyMode = "failed to set access mode to %s"
 )
 
+// /party_limit
+const (
+	MissingLimitOption  = "you must provide a limit"
+	FailedSetPartyLimit = "failed to set user limit to %d"
+	PartyLimitSet       = "this party's user limit is now **%d**"
+	PartyLimitCleared   = "this party's user limit has been cleared - unlimited"
+)
+
 // /party_preset
 const (
 	PartyPresetPrompt    = "pick your saved default access mode (applies only when you next create a party)"
@@ -50,6 +58,12 @@ const (
 	FailedClearPreset    = "failed to clear your saved default access mode"
 	PartyPresetCurrent   = "**Your saved preset:** %s"
 	NoPartyPreset        = "**Your saved preset:** _none (uses default: %s)_"
+
+	FailedSetPartyPresetLimit = "failed to set your default user limit"
+	PartyPresetLimitSet       = "your default user limit is now **%d**"
+	PartyPresetLimitCleared   = "your default user limit has been cleared - unlimited"
+	PartyPresetLimitCurrent   = "**Your saved user limit:** %d"
+	NoPartyPresetLimit        = "**Your saved user limit:** _unlimited_"
 )
 
 // /configure
@@ -90,21 +104,20 @@ const (
 	EnemyRemoved      = "<@%d> is no longer your enemy"
 )
 
-// /friend_list, /enemy_list
+// /relationships
 const (
-	FailedListFriends  = "failed to list friends"
-	FailedListEnemies  = "failed to list enemies"
-	NoFriends          = "you have no friends yet"
-	NoEnemies          = "you have no enemies yet"
-	FriendListHeader   = "**Your friends:**\n%s"
-	EnemyListHeader    = "**Your enemies:**\n%s"
-	FrenemyListSection = "\n\n**Frenemies (friended but blocked):**\n%s"
+	FailedListRelationships = "failed to list your relationships"
+	NoRelationships         = "you have no friends or enemies yet"
+	FriendListHeader        = "**Your Friends**\n%s"
+	EnemyListHeader         = "**Your Enemies**\n%s"
+	FrenemyListHeader       = "**Your FRENEMIES**\n%s"
 )
 
 // /party_info
 const (
-	PartyInfoHeader = "**Party type:** %s\n\n**Allowed in:**\n%s\n\n**Blocked:**\n%s\n\n%s"
-	NoOverrides     = "_none_"
+	PartyInfoHeader  = "**Party type:** %s\n**User limit:** %s\n\n**Allowed in:**\n%s\n\n**Blocked:**\n%s\n\n%s\n%s"
+	NoOverrides      = "_none_"
+	PartyInfoNoLimit = "unlimited"
 )
 
 // /party_invite
@@ -122,12 +135,17 @@ const (
 const NewOwner = "Congratulations <@%d>! You have been elevated to the owner of this party."
 
 // party creation notice, posted by internal/party.
-const PartyCreated = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in \"Friends of Friends\" mode.\n\nBe advised of the following:\n* You have %d friend(s) who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (you can limit the scope to friends-only, make it invite-only if you hate your friends, or throw the doors open with public mode - your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of friend status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+const PartyCreated = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **Friends of Friends** mode.\n\nBe advised of the following:\n* You have **%d friend(s)** who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, make it **invite-only** if you hate your friends, or throw the doors open with **public** mode; your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of friend status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
 
 // party creation notice for the public-mode default, posted by
 // internal/party in place of PartyCreated.
-const PartyCreatedPublic = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in \"Public\" mode - anyone can see and join.\n\nBe advised of the following:\n* Access rights may be adjusted using `/party_mode` (you can limit the scope to friends-only, friends-of-friends, or invite-only if you'd rather curate who gets in).\n* Your globally-blocked enemies stay locked out regardless of mode.\n* To keep specific people out you can use `/party_block`, or `/party_allow` to grant someone access even under a stricter mode.\n* Anyone currently in this channel can `/party_invite` someone else in.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+const PartyCreatedPublic = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **Public** mode: anyone can see and join.\n\nBe advised of the following:\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, **friends-of-friends**, or **invite-only** if you'd rather curate who gets in).\n* Your globally-blocked enemies stay locked out regardless of mode.\n* To keep specific people out you can use `/party_block`, or `/party_allow` to grant someone access even under a stricter mode.\n* Anyone currently in this channel can `/party_invite` someone else in.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
 
 // posted alongside PartyCreated when the owner has zero friends, since
 // "Friends of Friends" mode is otherwise silently useless to them.
 const PartyCreatedNoFriendsWarning = "No friends means nobody can see or join this party automatically. Use `/party_invite` to bring someone in, or `/party_mode` to switch to public."
+
+// appended as the last line of PartyCreated/PartyCreatedPublic when the
+// owner has no saved /party_preset, since the command is otherwise easy to
+// never discover.
+const PartyPresetTip = "**Tip:** This party used the **default access mode** because you have no saved preset. Set one with `/party_preset` so future parties open the way you want."
