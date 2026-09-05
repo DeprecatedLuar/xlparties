@@ -46,6 +46,10 @@ func callerAndTarget(s *discordgo.Session, i *discordgo.InteractionCreate) (call
 		respondEphemeral(s, i, messages.CannotTargetSelf)
 		return 0, 0, false
 	}
+	if strconv.FormatInt(target, 10) == s.State.User.ID {
+		respondEphemeral(s, i, messages.NuhUh)
+		return 0, 0, false
+	}
 	return caller, target, true
 }
 

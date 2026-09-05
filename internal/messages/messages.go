@@ -3,11 +3,14 @@
 // audited or changed in one place without touching the logic that sends it.
 package messages
 
+import "xlparties/internal/store"
+
 // Shared across command handlers via callerAndTarget.
 const (
 	FailedResolveCaller = "failed to resolve your user id"
 	FailedResolveTarget = "failed to resolve target user id"
 	CannotTargetSelf    = "you cannot target yourself"
+	NuhUh               = "Nuh-uh"
 )
 
 // /party_allow, /party_block
@@ -134,8 +137,18 @@ const (
 // party ownership handoff notice, posted by internal/party.
 const NewOwner = "Congratulations <@%d>! You have been elevated to the owner of this party."
 
-// party creation notice, posted by internal/party.
-const PartyCreated = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **Friends of Friends** mode.\n\nBe advised of the following:\n* You have **%d friend(s)** who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, make it **invite-only** if you hate your friends, or throw the doors open with **public** mode; your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of friend status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+// AccessModeLabel is the human-readable name for each store.AccessMode*
+// constant, shared by every user-facing message that names a mode.
+var AccessModeLabel = map[string]string{
+	store.AccessModeFriendsOfFriends: "Friends of Friends",
+	store.AccessModeFriendsOnly:      "Friends Only",
+	store.AccessModeInviteOnly:       "Invite Only",
+	store.AccessModePublic:           "Public",
+}
+
+// party creation notice, posted by internal/party. %s is the mode's
+// AccessModeLabel entry - PartyCreated covers every non-public mode.
+const PartyCreated = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **%s** mode.\n\nBe advised of the following:\n* You have **%d friend(s)** who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, make it **invite-only** if you hate your friends, or throw the doors open with **public** mode; your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of friend status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
 
 // party creation notice for the public-mode default, posted by
 // internal/party in place of PartyCreated.
@@ -149,3 +162,10 @@ const PartyCreatedNoFriendsWarning = "No friends means nobody can see or join th
 // owner has no saved /party_preset, since the command is otherwise easy to
 // never discover.
 const PartyPresetTip = "**Tip:** This party used the **default access mode** because you have no saved preset. Set one with `/party_preset` so future parties open the way you want."
+
+// party_create command responses, posted by internal/commands.
+const (
+	FailedCreateParty        = "failed to create your party"
+	PartyCreateReady         = "Your party is ready: <#%d>. Hop in whenever you like."
+	PartyCreateAlreadyExists = "You already have a party: <#%d>."
+)

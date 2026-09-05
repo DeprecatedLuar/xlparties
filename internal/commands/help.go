@@ -17,6 +17,7 @@ const helpText = `**xlparties commands**
 _Friend and enemy status are independent: blocking a friend (or friending an enemy) makes them a frenemy, and a block always wins over access._
 
 **Your Party**
+` + "`/party_create [mode] [limit]`" + ` — create your party now instead of joining the watch channel, optionally setting mode/limit inline (falls back to your saved preset for anything omitted)
 ` + "`/party_preset [mode] [limit]`" + ` — view or set your saved default access mode and user limit, applied only when you next create a party (never rewrites an existing one)
 ` + "`/party_allow user`" + ` — allow a user into your current party (overrides defaults)
 ` + "`/party_block user`" + ` — block a user from your current party (overrides defaults)

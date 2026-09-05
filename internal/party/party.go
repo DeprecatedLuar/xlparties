@@ -18,6 +18,7 @@ type Manager struct {
 	session *discordgo.Session
 	store   *store.Store
 	guildID string
+	botID   int64
 
 	emptyCleanup        time.Duration
 	ownerAbsenceHandoff time.Duration
@@ -39,11 +40,12 @@ type Manager struct {
 
 // NewManager constructs a Manager. Call Register to start listening for the
 // events that drive the lifecycle.
-func NewManager(session *discordgo.Session, st *store.Store, guildID string, emptyCleanup, ownerAbsenceHandoff, inviteExpiry time.Duration) *Manager {
+func NewManager(session *discordgo.Session, st *store.Store, guildID string, botID int64, emptyCleanup, ownerAbsenceHandoff, inviteExpiry time.Duration) *Manager {
 	return &Manager{
 		session:             session,
 		store:               st,
 		guildID:             guildID,
+		botID:               botID,
 		emptyCleanup:        emptyCleanup,
 		ownerAbsenceHandoff: ownerAbsenceHandoff,
 		inviteExpiry:        inviteExpiry,

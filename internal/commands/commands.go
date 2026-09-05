@@ -74,6 +74,30 @@ var specs = []*discordgo.ApplicationCommand{
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to invite")},
 	},
 	{
+		Name:        "party_create",
+		Description: "Create your party now instead of joining the watch channel, optionally setting mode and limit inline",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "mode",
+				Description: "Access mode for this party (defaults to your saved preset)",
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "Friends of friends", Value: store.AccessModeFriendsOfFriends},
+					{Name: "Friends only", Value: store.AccessModeFriendsOnly},
+					{Name: "Invite only", Value: store.AccessModeInviteOnly},
+					{Name: "Public", Value: store.AccessModePublic},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "limit",
+				Description: "User limit for this party, 0-99 (defaults to your saved preset)",
+				MinValue:    &limitOptionMin,
+				MaxValue:    limitOptionMax,
+			},
+		},
+	},
+	{
 		Name:        "party_mode",
 		Description: "View or set your current party's access mode",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -231,6 +255,10 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 		}
 		if name == "enemy_remove" {
 			handleEnemyRemove(s, i, st, partyManager)
+			return
+		}
+		if name == "party_create" {
+			handlePartyCreate(s, i, st, partyManager)
 			return
 		}
 		if name == "party_mode" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -46,11 +47,16 @@ func Run() error {
 	}
 	defer session.Close()
 
+	botID, err := strconv.ParseInt(session.State.User.ID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse bot user id %q: %w", session.State.User.ID, err)
+	}
+
 	if err := checkRequiredPermissions(session, guildID); err != nil {
 		logger.Error("permission check failed", "error", err)
 	}
 
-	partyManager := party.NewManager(session, st, guildID,
+	partyManager := party.NewManager(session, st, guildID, botID,
 		time.Duration(cfg.EmptyCleanupSeconds)*time.Second,
 		time.Duration(cfg.OwnerAbsenceHandoffSeconds)*time.Second,
 		time.Duration(cfg.InviteExpirySeconds)*time.Second,

@@ -14,12 +14,20 @@ import (
 // startCleanupTimer arms the empty-channel grace timer for channelID if one
 // isn't already running.
 func (m *Manager) startCleanupTimer(channelID int64) {
+	m.startCleanupTimerAfter(channelID, m.emptyCleanup)
+}
+
+// startCleanupTimerAfter arms the cleanup timer for channelID with a custom
+// grace period if one isn't already running. Used by CreateParty for a
+// party created without moving the owner in, since m.emptyCleanup is tuned
+// for "everyone left" rather than "nobody has joined yet".
+func (m *Manager) startCleanupTimerAfter(channelID int64, grace time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, running := m.cleanupTimers[channelID]; running {
 		return
 	}
-	m.cleanupTimers[channelID] = time.AfterFunc(m.emptyCleanup, func() {
+	m.cleanupTimers[channelID] = time.AfterFunc(grace, func() {
 		m.runCleanup(channelID)
 	})
 }

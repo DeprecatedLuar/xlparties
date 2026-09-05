@@ -34,7 +34,7 @@ const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.Perm
 // sourceIDs are the channel's active friends-of-friends scan sources
 // (party_sources); their friend lists are crawled live rather than stored,
 // following the "store only what cannot be derived" rule.
-func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, mode string, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, blockedIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
+func buildRewriteOverwrites(st *store.Store, guildID string, botID, ownerID int64, mode string, friendIDs []int64, sourceIDs []int64, pendingInviteIDs []int64, blockedIDs []int64, overrides []store.Override) ([]*discordgo.PermissionOverwrite, error) {
 	isPublic := mode == store.AccessModePublic
 
 	allow := make(map[int64]bool, len(friendIDs)+len(sourceIDs)+len(pendingInviteIDs)+len(blockedIDs)+1+len(overrides))
@@ -64,6 +64,9 @@ func buildRewriteOverwrites(st *store.Store, guildID string, ownerID int64, mode
 	for _, o := range overrides {
 		allow[o.UserID] = o.Type == "allow"
 	}
+	// A channel-local @everyone deny is not lifted by guild-level Manage
+	// Channels; without this, the bot locks itself out of non-public parties.
+	allow[botID] = true
 
 	everyone := &discordgo.PermissionOverwrite{
 		ID:   guildID, // @everyone role id equals the guild id

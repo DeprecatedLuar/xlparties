@@ -46,6 +46,11 @@ const (
 // tracked with an expiry timer that is the explicit trigger to revoke it
 // again.
 func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutcome, error) {
+	if targetID == m.botID {
+		logger.Warn("party invite: refusing to grant the bot's own overwrite", "channel", channelID)
+		return InviteRefused, nil
+	}
+
 	p, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
 		return 0, fmt.Errorf("load party %d: %w", channelID, err)
@@ -250,6 +255,11 @@ func (m *Manager) consumePendingInvite(channelID, userID int64) {
 // (channelID, userID). Shared by the join handler (invite consumed) and
 // runInviteExpiry (invite unused).
 func (m *Manager) revokeInvite(channelID, userID int64) {
+	if userID == m.botID {
+		logger.Warn("revoke invite: refusing to delete the bot's own overwrite", "channel", channelID)
+		return
+	}
+
 	channelIDStr := strconv.FormatInt(channelID, 10)
 	userIDStr := strconv.FormatInt(userID, 10)
 	if err := m.session.ChannelPermissionDelete(channelIDStr, userIDStr); err != nil {
