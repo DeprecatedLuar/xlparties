@@ -64,3 +64,6 @@ logs
 !LICENSE
 !shell.nix
 !.gitignore
+
+# Local build/runtime output
+bin/
