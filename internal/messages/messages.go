@@ -97,8 +97,8 @@ const (
 // /user_block
 const (
 	FailedAddEnemy        = "Errm... it seems *I* failed to add the enemy (please panic)"
-	EnemyAdded            = "<@%d> is now your ENEMY and won't be able to join your parties any longer (as long as you're the owner)"
-	EnemyAddedStillFriend = "<@%d> is now blocked, but they're still on your friend list too - a frenemy. They stay locked out until you `/user_unfriend` them or `/user_unblock` the block"
+	EnemyAdded            = "<@%d> is now your ENEMY and won't be able to join your parties any longer _(as long as you're the owner)_"
+	EnemyAddedStillFriend = "<@%d> is now blocked, but they're still on your friend list too (A FRENEMY!!!). They stay locked out until you `/user_unblock` them"
 )
 
 // /user_unblock
