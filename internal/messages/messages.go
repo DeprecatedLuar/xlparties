@@ -121,17 +121,18 @@ const (
 	PartyInfoHeader  = "**Party type:** %s\n**User limit:** %s\n\n**Allowed in:**\n%s\n\n**Blocked:**\n%s\n\n%s\n%s"
 	NoOverrides      = "_none_"
 	PartyInfoNoLimit = "unlimited"
+	EveryoneMention  = "@everyone"
 )
 
 // /party_invite
 const (
-	FailedInviteUser              = "failed to invite user"
-	MustBeInPartyChannel          = "you must be connected to this party's voice channel to invite someone"
-	PartyInviteSent               = "<@%d> has been invited to this party"
-	PartyInviteAlreadyHasAccess   = "<@%d> already has access to this party — sent them a reminder instead"
-	PartyInviteRefused            = "<@%d> can't be invited to this party"
-	PartyInviteDMAlreadyHasAccess = "## %s\n<@%d> tried to invite you to their party in this server, but you already have access - hop into their party voice channel whenever you like."
-	PartyInviteDMBody             = "## %s\n<@%d> invited you to their party in this server. Here's your one-click join link (works once, and only until you use it or it expires):\n%s"
+	FailedInviteUser     = "failed to invite user"
+	MustBeInPartyChannel = "you must be connected to this party's voice channel to invite someone"
+	PartyInviteSent      = "<@%d> has been invited to this party"
+	PartyInviteRefused   = "<@%d> can't be invited to this party"
+	// The trailing %d is a unix timestamp rendered by Discord's own
+	// timestamp markup, so the reader sees it in their local timezone.
+	PartyInviteDMBody = "## %s\n<@%d> invited you to their party in this server. Just click here to join (expires <t:%d:R>):\n%s"
 )
 
 // party ownership handoff notice, posted by internal/party.

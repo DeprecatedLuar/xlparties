@@ -18,18 +18,21 @@ import (
 // code, since InviteExpirySeconds is operator-configurable.
 const inviteCodeMaxAgeCap = 604800 // 7 days, Discord's own invite MaxAge ceiling
 
+// inviteCodeMaxUses caps a created invite at a single use, so the invitee
+// cannot pass the link on to someone the party never invited - the
+// per-member overwrite is theirs alone, but the invite code is not.
+const inviteCodeMaxUses = 1
+
 // InviteOutcome reports what InviteToParty did, so the command handler can
 // pick the right response for the caller.
 type InviteOutcome int
 
 const (
-	// InviteGranted means a temp allow overwrite was set, a party_invites
-	// row inserted, an expiry timer armed, and the target DMed a join link.
+	// InviteGranted means the target was DMed a join link. If they had no
+	// standing access yet, a temp allow overwrite was also set, a
+	// party_invites row inserted and an expiry timer armed; if they already
+	// had access, only the DM was sent - there is nothing to grant.
 	InviteGranted InviteOutcome = iota
-	// InviteAlreadyHasAccess means the target already had a standing allow
-	// overwrite (owner, friend, or manual /party_allow); nothing was
-	// granted or recorded, but the target was DMed a reminder.
-	InviteAlreadyHasAccess
 	// InviteRefused means the target has a standing deny overwrite, or is on
 	// the owner's block list and the caller isn't the owner; nothing was
 	// sent or changed.
@@ -38,8 +41,8 @@ const (
 
 // InviteToParty applies the /party_invite access-decision for targetID on
 // channelID, keyed off the target's current channel overwrite: a standing
-// allow overwrite is never touched (only DMed, so a friend is never
-// revoked); a standing deny overwrite is always refused outright. The
+// allow overwrite is never touched (the join link is DMed anyway, so a
+// friend is never revoked); a standing deny overwrite is refused outright. The
 // owner's block list also refuses the invite, but only for non-owner
 // callers - the owner can invite someone they've blocked, since that's
 // their own call to reverse. Otherwise a temp allow overwrite is granted,
@@ -71,8 +74,8 @@ func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutc
 			continue
 		}
 		if ow.Allow&PartyChannelPermissions == PartyChannelPermissions {
-			m.dmAlreadyHasAccess(targetID, callerID)
-			return InviteAlreadyHasAccess, nil
+			m.dmInviteGranted(targetID, callerID, channelIDStr)
+			return InviteGranted, nil
 		}
 		if ow.Deny&PartyChannelPermissions == PartyChannelPermissions {
 			return InviteRefused, nil
@@ -84,8 +87,8 @@ func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutc
 	// access via @everyone: allow - granting a temp overwrite would be
 	// redundant, so treat it the same as an existing standing allow.
 	if p.AccessMode == store.AccessModePublic {
-		m.dmAlreadyHasAccess(targetID, callerID)
-		return InviteAlreadyHasAccess, nil
+		m.dmInviteGranted(targetID, callerID, channelIDStr)
+		return InviteGranted, nil
 	}
 
 	if callerID != p.OwnerID {
@@ -112,27 +115,13 @@ func (m *Manager) InviteToParty(channelID, callerID, targetID int64) (InviteOutc
 	return InviteGranted, nil
 }
 
-// dmAlreadyHasAccess best-effort DMs targetID that callerID tried to invite
-// them but they already have standing access, with no join link needed
-// since they can already see and join the channel directly. DM failures are
-// logged, not surfaced to the caller.
-func (m *Manager) dmAlreadyHasAccess(targetID, callerID int64) {
-	channel, err := m.session.UserChannelCreate(strconv.FormatInt(targetID, 10))
-	if err != nil {
-		logger.Error("party invite: could not open DM", "target", targetID, "error", err)
-		return
-	}
-	msg := fmt.Sprintf(messages.PartyInviteDMAlreadyHasAccess, messages.RandomGreeting(), callerID)
-	if _, err := m.session.ChannelMessageSend(channel.ID, msg); err != nil {
-		logger.Error("party invite: could not DM already-has-access notice", "target", targetID, "error", err)
-	}
-}
-
 // dmInviteGranted best-effort DMs targetID a one-click join link for
 // channelIDStr, created as a short-lived native Discord invite (a plain
-// channel link would not work since the target has no standing VIEW_CHANNEL
-// overwrite yet). DM/invite-creation failures are logged, not surfaced to
-// the caller - the overwrite grant itself already succeeded.
+// channel link would not work when the target has no standing VIEW_CHANNEL
+// overwrite yet). It is the single DM every successful /party_invite sends,
+// whether or not an overwrite had to be granted. DM/invite-creation
+// failures are logged, not surfaced to the caller - the overwrite grant
+// itself already succeeded.
 func (m *Manager) dmInviteGranted(targetID, callerID int64, channelIDStr string) {
 	maxAge := int(m.inviteExpiry.Seconds())
 	if maxAge <= 0 || maxAge > inviteCodeMaxAgeCap {
@@ -140,8 +129,9 @@ func (m *Manager) dmInviteGranted(targetID, callerID int64, channelIDStr string)
 	}
 
 	invite, err := m.session.ChannelInviteCreate(channelIDStr, discordgo.Invite{
-		MaxAge: maxAge,
-		Unique: true,
+		MaxAge:  maxAge,
+		MaxUses: inviteCodeMaxUses,
+		Unique:  true,
 	})
 	if err != nil {
 		logger.Error("party invite: could not create invite code", "channel", channelIDStr, "target", targetID, "error", err)
@@ -153,7 +143,8 @@ func (m *Manager) dmInviteGranted(targetID, callerID int64, channelIDStr string)
 		logger.Error("party invite: could not open DM", "target", targetID, "error", err)
 		return
 	}
-	msg := fmt.Sprintf(messages.PartyInviteDMBody, messages.RandomGreeting(), callerID, "https://discord.gg/"+invite.Code)
+	expiresAt := time.Now().Add(time.Duration(maxAge) * time.Second).Unix()
+	msg := fmt.Sprintf(messages.PartyInviteDMBody, messages.RandomGreeting(), callerID, expiresAt, "https://discord.gg/"+invite.Code)
 	if _, err := m.session.ChannelMessageSend(channel.ID, msg); err != nil {
 		logger.Error("party invite: could not DM join link", "target", targetID, "error", err)
 	}

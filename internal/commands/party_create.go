@@ -18,10 +18,18 @@ import (
 // caller is not expected to be in a party channel yet, or even in voice at
 // all - CreateParty itself decides whether to move them in.
 func handlePartyCreate(s *discordgo.Session, i *discordgo.InteractionCreate, _ *store.Store, pm *party.Manager) {
+	// CreateParty can make several sequential Discord REST calls (channel
+	// creation, member move, salutation messages), easily exceeding
+	// Discord's 3-second ACK deadline - defer immediately so that runs
+	// against a 15-minute budget instead.
+	if err := deferEphemeral(s, i); err != nil {
+		return
+	}
+
 	caller, err := callerID(i)
 	if err != nil {
 		logger.Error("party_create: resolve caller id", "error", err)
-		respondEphemeral(s, i, messages.FailedResolveCaller)
+		editDeferred(s, i, messages.FailedResolveCaller)
 		return
 	}
 
@@ -34,15 +42,15 @@ func handlePartyCreate(s *discordgo.Session, i *discordgo.InteractionCreate, _ *
 	channelID, alreadyExisted, err := pm.CreateParty(caller, mode, limitOverride)
 	if err != nil {
 		logger.Error("party_create: create party", "caller", caller, "error", err)
-		respondEphemeral(s, i, messages.FailedCreateParty)
+		editDeferred(s, i, messages.FailedCreateParty)
 		return
 	}
 
 	if alreadyExisted {
-		respondEphemeral(s, i, fmt.Sprintf(messages.PartyCreateAlreadyExists, channelID))
+		editDeferred(s, i, fmt.Sprintf(messages.PartyCreateAlreadyExists, channelID))
 		return
 	}
-	respondEphemeral(s, i, fmt.Sprintf(messages.PartyCreateReady, channelID))
+	editDeferred(s, i, fmt.Sprintf(messages.PartyCreateReady, channelID))
 }
 
 // createOptions reads /party_create's optional "mode" and "limit" options.

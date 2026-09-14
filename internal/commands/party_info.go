@@ -3,11 +3,13 @@ package commands
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 
 	"xlparties/internal/logger"
 	"xlparties/internal/messages"
+	"xlparties/internal/party"
 	"xlparties/internal/store"
 )
 
@@ -37,21 +39,18 @@ func handlePartyInfo(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 		return
 	}
 
-	overrides, err := st.OverridesForChannel(channelID)
+	channel, err := s.Channel(i.ChannelID)
 	if err != nil {
-		logger.Error("party_info: load overrides", "error", err)
+		logger.Error("party_info: fetch channel", "error", err)
 		respondEphemeral(s, i, messages.FailedLookupParty)
 		return
 	}
-
-	var allowedIDs, blockedIDs []int64
-	for _, o := range overrides {
-		if o.Type == overrideTypeAllow {
-			allowedIDs = append(allowedIDs, o.UserID)
-		} else {
-			blockedIDs = append(blockedIDs, o.UserID)
-		}
+	limitDisplay := messages.PartyInfoNoLimit
+	if channel.UserLimit != 0 {
+		limitDisplay = strconv.Itoa(channel.UserLimit)
 	}
+
+	allowedLines, blockedLines := partitionOverwrites(channel.PermissionOverwrites, i.GuildID, s.State.User.ID)
 
 	preset, found, err := st.PresetForUser(caller)
 	if err != nil {
@@ -75,30 +74,54 @@ func handlePartyInfo(s *discordgo.Session, i *discordgo.InteractionCreate, st *s
 		presetLimitLine = fmt.Sprintf(messages.PartyPresetLimitCurrent, presetLimit)
 	}
 
-	channel, err := s.Channel(i.ChannelID)
-	if err != nil {
-		logger.Error("party_info: fetch channel", "error", err)
-		respondEphemeral(s, i, messages.FailedLookupParty)
-		return
-	}
-	limitDisplay := messages.PartyInfoNoLimit
-	if channel.UserLimit != 0 {
-		limitDisplay = strconv.Itoa(channel.UserLimit)
-	}
-
 	respondEphemeral(s, i, fmt.Sprintf(messages.PartyInfoHeader,
 		partyModeLabel[activeParty.AccessMode],
 		limitDisplay,
-		overrideList(allowedIDs),
-		overrideList(blockedIDs),
+		overrideList(allowedLines),
+		overrideList(blockedLines),
 		presetLine,
 		presetLimitLine,
 	))
 }
 
-func overrideList(ids []int64) string {
-	if len(ids) == 0 {
+// partitionOverwrites mirrors the channel's actual permission overwrites
+// into allowed/blocked mention lines, rather than recomputing access from
+// store state - the channel overwrites are the enforced access model (see
+// buildRewriteOverwrites), so reading them back is the only rendering that
+// can't drift from what Discord actually grants. botUserID is skipped: the
+// bot's own self-allow overwrite is implementation detail, not a party
+// access decision.
+func partitionOverwrites(overwrites []*discordgo.PermissionOverwrite, guildID, botUserID string) (allowed, blocked []string) {
+	for _, ow := range overwrites {
+		switch ow.Type {
+		case discordgo.PermissionOverwriteTypeMember:
+			if ow.ID == botUserID {
+				continue
+			}
+			mention := fmt.Sprintf("<@%s>", ow.ID)
+			if ow.Allow&party.PartyChannelPermissions == party.PartyChannelPermissions {
+				allowed = append(allowed, mention)
+			} else if ow.Deny&party.PartyChannelPermissions == party.PartyChannelPermissions {
+				blocked = append(blocked, mention)
+			}
+		case discordgo.PermissionOverwriteTypeRole:
+			mention := fmt.Sprintf("<@&%s>", ow.ID)
+			if ow.ID == guildID {
+				mention = messages.EveryoneMention
+			}
+			if ow.Allow&party.PartyChannelPermissions == party.PartyChannelPermissions {
+				allowed = append(allowed, mention)
+			} else if ow.Deny&party.PartyChannelPermissions == party.PartyChannelPermissions {
+				blocked = append(blocked, mention)
+			}
+		}
+	}
+	return allowed, blocked
+}
+
+func overrideList(lines []string) string {
+	if len(lines) == 0 {
 		return messages.NoOverrides
 	}
-	return mentionList(ids)
+	return strings.Join(lines, "\n")
 }
