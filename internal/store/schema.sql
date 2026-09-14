@@ -3,11 +3,12 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS relationships (
-  granter_id INTEGER NOT NULL REFERENCES users(id),
-  grantee_id INTEGER NOT NULL REFERENCES users(id),
-  is_friend  INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0,1)),
-  is_blocked INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0,1)),
-  created_at INTEGER NOT NULL,
+  granter_id  INTEGER NOT NULL REFERENCES users(id),
+  grantee_id  INTEGER NOT NULL REFERENCES users(id),
+  is_friend   INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0,1)),
+  is_favorite INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0,1)),
+  is_blocked  INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0,1)),
+  created_at  INTEGER NOT NULL,
   PRIMARY KEY (granter_id, grantee_id)
 );
 
@@ -17,7 +18,7 @@ CREATE TABLE IF NOT EXISTS parties (
   channel_id  INTEGER PRIMARY KEY,   -- the party voice channel snowflake
   owner_id    INTEGER NOT NULL,      -- current owner snowflake
   created_at  INTEGER NOT NULL,
-  access_mode TEXT NOT NULL DEFAULT 'public' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
+  access_mode TEXT NOT NULL DEFAULT 'public'
 );
 
 CREATE TABLE IF NOT EXISTS party_overrides (
@@ -65,7 +66,7 @@ CREATE TABLE IF NOT EXISTS party_pending_creations (
 -- store.DefaultAccessMode, not a stored value.
 CREATE TABLE IF NOT EXISTS user_presets (
   user_id     INTEGER PRIMARY KEY,
-  access_mode TEXT NOT NULL CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public')),
+  access_mode TEXT NOT NULL,
   user_limit  INTEGER NOT NULL DEFAULT 0 CHECK (user_limit BETWEEN 0 AND 99)
 );
 

@@ -14,6 +14,36 @@ import (
 // the party_allow/party_block commands write the same pair to a single overwrite.
 const PartyChannelPermissions = discordgo.PermissionViewChannel | discordgo.PermissionVoiceConnect
 
+// autoAllowIDs returns the owner's automatic allow set for mode - the single
+// place that maps an access mode to which of the owner's relationships grant
+// automatic access. friends_of_friends and friends_only both use the owner's
+// AllowedFriendIDs (the friends-of-friends crawl over each active source is
+// applied separately in buildRewriteOverwrites, since it depends on the
+// channel's sources, not just the owner). besties_only uses the owner's
+// AllowedFavoriteIDs. invite_only and public grant nothing automatically -
+// invite_only relies entirely on explicit grants (party_allow, party_invite),
+// and public's default-allow already covers everyone via @everyone.
+func autoAllowIDs(st *store.Store, ownerID int64, mode string) ([]int64, error) {
+	switch mode {
+	case store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly:
+		friendIDs, err := st.AllowedFriendIDs(ownerID)
+		if err != nil {
+			return nil, fmt.Errorf("load friends for owner %d: %w", ownerID, err)
+		}
+		return friendIDs, nil
+	case store.AccessModeBestiesOnly:
+		favoriteIDs, err := st.AllowedFavoriteIDs(ownerID)
+		if err != nil {
+			return nil, fmt.Errorf("load besties for owner %d: %w", ownerID, err)
+		}
+		return favoriteIDs, nil
+	case store.AccessModeInviteOnly, store.AccessModePublic:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown access mode %q", mode)
+	}
+}
+
 // buildRewriteOverwrites returns the full overwrite set for a party channel.
 // It serves both creation and an ownership handoff or mode change: in every
 // mode except public, @everyone is denied, the owner and their friends are

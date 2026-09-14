@@ -77,7 +77,7 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message strin
 			Content: message,
 			Flags:   flags,
 			// The bot runs with Administrator (mention-everyone included),
-			// and replies like /party_info and /relationships render raw
+			// and replies like /party_info and /user_list render raw
 			// user/@everyone mentions as data, not as pings. Suppress all
 			// mention parsing rather than relying on ephemeral delivery
 			// rules to keep those silent.

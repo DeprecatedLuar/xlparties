@@ -79,41 +79,57 @@ const (
 	CategorySet           = "party category set to <#%s>"
 )
 
-// /friend_add
+// /user_friend
 const (
 	FailedAddFriend         = "failed to add friend"
 	AlreadyFriend           = "<@%d> seems to already be your acquaintance"
-	FriendAdded             = "Now you and <@%d> shall be besties. Yipee"
-	FriendAddedStillBlocked = "<@%d> is on your friend list now, but you still have them blocked - they remain locked out until you `/enemy_remove` them too"
-	FriendAddedNotif        = " ## %s\nIt seems <@%d> added you as a friend in **%s**.\nI would never do that _but_ you can use `/friend_add` (in the server) and pick <@%d> as the user to add them back"
+	FriendAdded             = "You have now befriended <@%d>"
+	FriendAddedStillBlocked = "<@%d> is on your friend list now, but you still have them blocked - they remain locked out until you `/user_unblock` them too"
+	FriendAddedNotif        = " ## %s\nIt seems <@%d> added you as a friend in **%s**.\nI would never do that _but_ you can use `/user_friend` (in the server) and pick <@%d> as the user to add them back"
 )
 
-// /friend_remove
+// /user_unfriend
 const (
 	FailedRemoveFriend = "Errm... it seems *I* failed to remove your friend (please panic)"
 	FriendRemoved      = "<@%d> has been REMOVED as a friend (mwahaha)"
 )
 
-// /enemy_add
+// /user_block
 const (
 	FailedAddEnemy        = "Errm... it seems *I* failed to add the enemy (please panic)"
 	EnemyAdded            = "<@%d> is now your ENEMY and won't be able to join your parties any longer (as long as you're the owner)"
-	EnemyAddedStillFriend = "<@%d> is now blocked, but they're still on your friend list too - a frenemy. They stay locked out until you `/friend_remove` them or `/enemy_remove` the block"
+	EnemyAddedStillFriend = "<@%d> is now blocked, but they're still on your friend list too - a frenemy. They stay locked out until you `/user_unfriend` them or `/user_unblock` the block"
 )
 
-// /enemy_remove
+// /user_unblock
 const (
 	FailedRemoveEnemy = "Errm... it seems *I* failed to remove the enemy (please panic)"
 	EnemyRemoved      = "<@%d> is no longer your enemy"
 )
 
-// /relationships
+// /user_favorite
+const (
+	FailedAddFavorite         = "Errm... it seems *I* failed to add the bestie (please panic)"
+	AlreadyFavorite           = "<@%d> seems to already be your bestie"
+	FavoriteAdded             = "<@%d> is now your BESTIE - automatically allowed into your besties-only parties"
+	FavoriteAddedStillBlocked = "<@%d> is your bestie now, but you still have them blocked - a best frenemy. They stay locked out until you `/user_unblock` them"
+)
+
+// /user_unfavorite
+const (
+	FailedRemoveFavorite = "Errm... it seems *I* failed to remove the bestie (please panic)"
+	FavoriteRemoved      = "<@%d> is no longer your bestie, but they're still your friend"
+)
+
+// /user_list
 const (
 	FailedListRelationships = "failed to list your relationships"
 	NoRelationships         = "you have no friends or enemies yet"
+	BestieListHeader        = "**Your Besties**\n%s"
 	FriendListHeader        = "**Your Friends**\n%s"
 	EnemyListHeader         = "**Your Enemies**\n%s"
 	FrenemyListHeader       = "**Your FRENEMIES**\n%s"
+	BestFrenemyListHeader   = "**Your BEST FRENEMIES**\n%s"
 )
 
 // /party_info
@@ -143,21 +159,37 @@ const NewOwner = "Congratulations <@%d>! You have been elevated to the owner of 
 var AccessModeLabel = map[string]string{
 	store.AccessModeFriendsOfFriends: "Friends of Friends",
 	store.AccessModeFriendsOnly:      "Friends Only",
+	store.AccessModeBestiesOnly:      "Besties Only",
 	store.AccessModeInviteOnly:       "Invite Only",
 	store.AccessModePublic:           "Public",
 }
 
 // party creation notice, posted by internal/party. %s is the mode's
 // AccessModeLabel entry - PartyCreated covers every non-public mode.
-const PartyCreated = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **%s** mode.\n\nBe advised of the following:\n* You have **%d friend(s)** who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, make it **invite-only** if you hate your friends, or throw the doors open with **public** mode; your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of friend status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+const PartyCreated = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **%s** mode.\n\nBe advised of the following:\n* You have **%d friend(s)** who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, narrow it further to **besties-only**, make it **invite-only** if you hate your friends, or throw the doors open with **public** mode; your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of friend status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
 
 // party creation notice for the public-mode default, posted by
 // internal/party in place of PartyCreated.
-const PartyCreatedPublic = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **Public** mode: anyone can see and join.\n\nBe advised of the following:\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, **friends-of-friends**, or **invite-only** if you'd rather curate who gets in).\n* Your globally-blocked enemies stay locked out regardless of mode.\n* To keep specific people out you can use `/party_block`, or `/party_allow` to grant someone access even under a stricter mode.\n* Anyone currently in this channel can `/party_invite` someone else in.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+const PartyCreatedPublic = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **Public** mode: anyone can see and join.\n\nBe advised of the following:\n* Access rights may be adjusted using `/party_mode` (limit the scope to **friends-only**, **friends-of-friends**, **besties-only**, or **invite-only** if you'd rather curate who gets in).\n* Your globally-blocked enemies stay locked out regardless of mode.\n* To keep specific people out you can use `/party_block`, or `/party_allow` to grant someone access even under a stricter mode.\n* Anyone currently in this channel can `/party_invite` someone else in.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
 
 // posted alongside PartyCreated when the owner has zero friends, since
 // "Friends of Friends" mode is otherwise silently useless to them.
 const PartyCreatedNoFriendsWarning = "No friends means nobody can see or join this party automatically. Use `/party_invite` to bring someone in, or `/party_mode` to switch to public."
+
+// party creation notice for besties_only mode, posted by internal/party in
+// place of PartyCreated. %s is the mode's AccessModeLabel entry, %d the
+// owner's bestie count.
+const PartyCreatedBesties = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **%s** mode.\n\nBe advised of the following:\n* You have **%d bestie(s)** who can automatically see and join this channel.\n* Access rights may be adjusted using `/party_mode` (widen the scope to **friends-only**, make it **invite-only** if you hate your besties, or throw the doors open with **public** mode; your enemies stay locked out either way).\n* To allow _other_ people in you can use `/party_allow`, or `/party_block` to prevent your evil enemies from joining.\n* Anyone currently in this channel can `/party_invite` someone else in, regardless of bestie status.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+
+// party creation notice for invite_only mode, posted by internal/party in
+// place of PartyCreated. No count is shown since invite_only grants nobody
+// automatic access, friends and besties included. %s is the mode's
+// AccessModeLabel entry.
+const PartyCreatedInviteOnly = "## Welcome aboard, Captain <@%d>.\nThis channel is your designated party venue, currently operating in **%s** mode: nobody gets in automatically, not even your friends or besties.\n\nBe advised of the following:\n* To let someone in, use `/party_allow`, or have anyone currently in the channel run `/party_invite`.\n* `/party_block` still keeps your evil enemies out, though they can't get in automatically here anyway.\n* Access rights may be adjusted using `/party_mode` if you'd rather open things up.\n* Use `/party_info` to check your current access mode and overrides at a glance.\n* For additional instruction, refer to `/help`."
+
+// posted alongside PartyCreatedBesties when the owner has zero besties,
+// since "Besties Only" mode is otherwise silently useless to them.
+const PartyCreatedNoBestiesWarning = "No besties means nobody can see or join this party automatically. Use `/party_invite` to bring someone in, or `/party_mode` to switch to public."
 
 // appended as the last line of PartyCreated/PartyCreatedPublic when the
 // owner has no saved /party_preset, since the command is otherwise easy to

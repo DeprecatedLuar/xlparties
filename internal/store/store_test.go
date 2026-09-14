@@ -262,7 +262,7 @@ func TestUpdateAccessMode(t *testing.T) {
 		t.Fatalf("InsertParty: %v", err)
 	}
 
-	for _, mode := range []string{AccessModeFriendsOnly, AccessModeInviteOnly, AccessModeFriendsOfFriends} {
+	for _, mode := range []string{AccessModeFriendsOnly, AccessModeBestiesOnly, AccessModeInviteOnly, AccessModeFriendsOfFriends} {
 		if err := s.UpdateAccessMode(channel, mode); err != nil {
 			t.Fatalf("UpdateAccessMode(%q): %v", mode, err)
 		}
@@ -276,7 +276,7 @@ func TestUpdateAccessMode(t *testing.T) {
 	}
 
 	if err := s.UpdateAccessMode(channel, "not_a_real_mode"); err == nil {
-		t.Fatal("UpdateAccessMode with an invalid mode should fail the access_mode CHECK constraint")
+		t.Fatal("UpdateAccessMode with an invalid mode should be rejected by ValidAccessMode")
 	}
 }
 
@@ -483,5 +483,156 @@ func TestPresetLimitOutOfRangeRejected(t *testing.T) {
 	}
 	if err := s.UpsertPresetLimit(9009, -1); err == nil {
 		t.Fatal("UpsertPresetLimit(-1) succeeded, want CHECK constraint violation")
+	}
+}
+
+func TestRemoveFriendOnBestieClearsBothFlagsAndPrunes(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, target = int64(1001), int64(2002)
+
+	if err := s.UpsertFriend(owner, target); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if err := s.UpsertFavorite(owner, target); err != nil {
+		t.Fatalf("UpsertFavorite: %v", err)
+	}
+
+	if err := s.RemoveFriend(owner, target); err != nil {
+		t.Fatalf("RemoveFriend: %v", err)
+	}
+
+	if is, err := s.IsFriend(owner, target); err != nil || is {
+		t.Fatalf("IsFriend after RemoveFriend on a bestie = (%v, %v), want (false, nil)", is, err)
+	}
+	if is, err := s.IsFavorite(owner, target); err != nil || is {
+		t.Fatalf("IsFavorite after RemoveFriend on a bestie = (%v, %v), want (false, nil)", is, err)
+	}
+
+	var rowCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM relationships WHERE granter_id = ? AND grantee_id = ?`, owner, target).Scan(&rowCount); err != nil {
+		t.Fatalf("count relationship rows: %v", err)
+	}
+	if rowCount != 0 {
+		t.Fatalf("relationship row still present after RemoveFriend on a bestie, count = %d", rowCount)
+	}
+}
+
+func TestFavoritePlusBlockLandsOnlyInBestFrenemyIDs(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, target = int64(1001), int64(2002)
+
+	if err := s.UpsertFriend(owner, target); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if err := s.UpsertFavorite(owner, target); err != nil {
+		t.Fatalf("UpsertFavorite: %v", err)
+	}
+	if err := s.UpsertBlock(owner, target); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+
+	sections := map[string][]int64{}
+	var err error
+	if sections["Besties"], err = s.AllowedFavoriteIDs(owner); err != nil {
+		t.Fatalf("AllowedFavoriteIDs: %v", err)
+	}
+	if sections["Friends"], err = s.FriendOnlyIDs(owner); err != nil {
+		t.Fatalf("FriendOnlyIDs: %v", err)
+	}
+	if sections["Enemies"], err = s.EnemyIDs(owner); err != nil {
+		t.Fatalf("EnemyIDs: %v", err)
+	}
+	if sections["Frenemies"], err = s.FrenemyIDs(owner); err != nil {
+		t.Fatalf("FrenemyIDs: %v", err)
+	}
+	if sections["Best Frenemies"], err = s.BestFrenemyIDs(owner); err != nil {
+		t.Fatalf("BestFrenemyIDs: %v", err)
+	}
+
+	for name, ids := range sections {
+		present := len(ids) == 1 && ids[0] == target
+		want := name == "Best Frenemies"
+		if present != want {
+			t.Fatalf("section %s contains target = %v, want %v (sections = %v)", name, present, want, sections)
+		}
+	}
+}
+
+func TestListSectionsAreMutuallyExclusive(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner = int64(1001)
+	const bestie, friend, enemy, frenemy, bestFrenemy = int64(11), int64(12), int64(13), int64(14), int64(15)
+
+	// Bestie: favorite, not blocked.
+	if err := s.UpsertFriend(owner, bestie); err != nil {
+		t.Fatalf("UpsertFriend(bestie): %v", err)
+	}
+	if err := s.UpsertFavorite(owner, bestie); err != nil {
+		t.Fatalf("UpsertFavorite(bestie): %v", err)
+	}
+
+	// Friend: friend, not favorite, not blocked.
+	if err := s.UpsertFriend(owner, friend); err != nil {
+		t.Fatalf("UpsertFriend(friend): %v", err)
+	}
+
+	// Enemy: blocked, not friend.
+	if err := s.UpsertBlock(owner, enemy); err != nil {
+		t.Fatalf("UpsertBlock(enemy): %v", err)
+	}
+
+	// Frenemy: blocked, friend, not favorite.
+	if err := s.UpsertFriend(owner, frenemy); err != nil {
+		t.Fatalf("UpsertFriend(frenemy): %v", err)
+	}
+	if err := s.UpsertBlock(owner, frenemy); err != nil {
+		t.Fatalf("UpsertBlock(frenemy): %v", err)
+	}
+
+	// Best Frenemy: blocked, favorite.
+	if err := s.UpsertFriend(owner, bestFrenemy); err != nil {
+		t.Fatalf("UpsertFriend(bestFrenemy): %v", err)
+	}
+	if err := s.UpsertFavorite(owner, bestFrenemy); err != nil {
+		t.Fatalf("UpsertFavorite(bestFrenemy): %v", err)
+	}
+	if err := s.UpsertBlock(owner, bestFrenemy); err != nil {
+		t.Fatalf("UpsertBlock(bestFrenemy): %v", err)
+	}
+
+	sectionFuncs := map[string]func(int64) ([]int64, error){
+		"Besties":        s.AllowedFavoriteIDs,
+		"Friends":        s.FriendOnlyIDs,
+		"Enemies":        s.EnemyIDs,
+		"Frenemies":      s.FrenemyIDs,
+		"Best Frenemies": s.BestFrenemyIDs,
+	}
+	wantSection := map[int64]string{
+		bestie:      "Besties",
+		friend:      "Friends",
+		enemy:       "Enemies",
+		frenemy:     "Frenemies",
+		bestFrenemy: "Best Frenemies",
+	}
+
+	for user, want := range wantSection {
+		var found []string
+		for name, fn := range sectionFuncs {
+			ids, err := fn(owner)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			for _, id := range ids {
+				if id == user {
+					found = append(found, name)
+				}
+			}
+		}
+		if len(found) != 1 || found[0] != want {
+			t.Fatalf("user %d found in sections %v, want exactly [%s]", user, found, want)
+		}
 	}
 }

@@ -11,7 +11,6 @@ import (
 
 	"xlparties/internal/logger"
 	"xlparties/internal/messages"
-	"xlparties/internal/store"
 )
 
 // startHandoffTimer arms the owner-absence handoff timer for channelID if
@@ -88,15 +87,12 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 }
 
 // rewriteOverwrites recomputes and applies the full overwrite set for
-// channelID against ownerID's current friends, the channel's active
-// friends-of-friends sources, and the channel's manual party_overrides.
-// Sources survive the handoff - they belong to
-// the channel, not the owner. In invite_only mode the owner's friend list is
-// excluded entirely - only the owner and explicit party_overrides allow rows
-// grant access. In public mode the owner's friend list is likewise excluded
-// (default access already covers everyone). The owner's globally-blocked
-// users are loaded unconditionally in every mode, since a block must win
-// over any automatic allow regardless of mode.
+// channelID against ownerID's current auto-allow set (autoAllowIDs, mode
+// dependent), the channel's active friends-of-friends sources, and the
+// channel's manual party_overrides. Sources survive the handoff - they
+// belong to the channel, not the owner. The owner's globally-blocked users
+// are loaded unconditionally in every mode, since a block must win over any
+// automatic allow regardless of mode.
 func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 	current, exists, err := m.store.PartyByChannel(channelID)
 	if err != nil {
@@ -106,12 +102,9 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 		return fmt.Errorf("party %d not found", channelID)
 	}
 
-	var friendIDs []int64
-	if current.AccessMode != store.AccessModeInviteOnly && current.AccessMode != store.AccessModePublic {
-		friendIDs, err = m.store.AllowedFriendIDs(ownerID)
-		if err != nil {
-			return fmt.Errorf("load friends for owner %d: %w", ownerID, err)
-		}
+	autoAllowedIDs, err := autoAllowIDs(m.store, ownerID, current.AccessMode)
+	if err != nil {
+		return fmt.Errorf("resolve auto-allow set for owner %d: %w", ownerID, err)
 	}
 	sourceIDs, err := m.store.SourceIDsForChannel(channelID)
 	if err != nil {
@@ -130,7 +123,7 @@ func (m *Manager) rewriteOverwrites(channelID, ownerID int64) error {
 		return fmt.Errorf("load overrides for channel %d: %w", channelID, err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.alwaysAllowedRoleIDs, m.botID, ownerID, current.AccessMode, friendIDs, sourceIDs, pendingInviteIDs, blockedIDs, overrides)
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.alwaysAllowedRoleIDs, m.botID, ownerID, current.AccessMode, autoAllowedIDs, sourceIDs, pendingInviteIDs, blockedIDs, overrides)
 	if err != nil {
 		return fmt.Errorf("build overwrites for channel %d: %w", channelID, err)
 	}
@@ -150,20 +143,27 @@ func containsUser(members []string, userID int64) bool {
 }
 
 // pickHandoffSuccessor chooses the new owner from members present in the
-// channel. It prefers a random pick among members the absent owner had
-// marked as friends; if none of the present members are friends, it falls
-// back to a random pick among all present members.
+// channel, picking randomly within the most specific non-empty layer: the
+// absent owner's present besties, else their present friends, else all
+// present members.
 func (m *Manager) pickHandoffSuccessor(members []string, absentOwnerID int64) (int64, error) {
+	favoriteIDs, err := m.store.AllowedFavoriteIDs(absentOwnerID)
+	if err != nil {
+		return 0, fmt.Errorf("load besties for absent owner %d: %w", absentOwnerID, err)
+	}
 	friendIDs, err := m.store.AllowedFriendIDs(absentOwnerID)
 	if err != nil {
 		return 0, fmt.Errorf("load friends for absent owner %d: %w", absentOwnerID, err)
 	}
 
-	var friendMembers []string
+	var favoriteMembers, friendMembers []string
 	for _, member := range members {
 		memberID, err := strconv.ParseInt(member, 10, 64)
 		if err != nil {
 			return 0, fmt.Errorf("parse member id %q: %w", member, err)
+		}
+		if slices.Contains(favoriteIDs, memberID) {
+			favoriteMembers = append(favoriteMembers, member)
 		}
 		if slices.Contains(friendIDs, memberID) {
 			friendMembers = append(friendMembers, member)
@@ -171,7 +171,10 @@ func (m *Manager) pickHandoffSuccessor(members []string, absentOwnerID int64) (i
 	}
 
 	pool := members
-	if len(friendMembers) > 0 {
+	switch {
+	case len(favoriteMembers) > 0:
+		pool = favoriteMembers
+	case len(friendMembers) > 0:
 		pool = friendMembers
 	}
 

@@ -22,6 +22,7 @@ const partyModeComponentPrefix = "party_mode_"
 var partyModeLabel = map[string]string{
 	store.AccessModeFriendsOfFriends: "Friends of friends",
 	store.AccessModeFriendsOnly:      "Friends only",
+	store.AccessModeBestiesOnly:      "Besties only",
 	store.AccessModeInviteOnly:       "Invite only",
 	store.AccessModePublic:           "Public",
 }
@@ -132,10 +133,11 @@ func modeOption(i *discordgo.InteractionCreate) (string, bool) {
 	return "", false
 }
 
+// partyModeButtonRow puts every store.AccessModes entry in a single row -
+// Discord allows up to 5 buttons per row, and there are exactly 5 modes.
 func partyModeButtonRow() discordgo.ActionsRow {
-	modes := []string{store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly, store.AccessModePublic}
-	buttons := make([]discordgo.MessageComponent, 0, len(modes))
-	for _, mode := range modes {
+	buttons := make([]discordgo.MessageComponent, 0, len(store.AccessModes))
+	for _, mode := range store.AccessModes {
 		buttons = append(buttons, discordgo.Button{
 			Label:    partyModeLabel[mode],
 			Style:    discordgo.PrimaryButton,

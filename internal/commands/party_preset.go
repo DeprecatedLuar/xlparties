@@ -178,9 +178,8 @@ func presetOptions(i *discordgo.InteractionCreate) (mode string, modeGiven bool,
 }
 
 func partyPresetSelectRow() discordgo.ActionsRow {
-	modes := []string{store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly, store.AccessModePublic}
-	options := make([]discordgo.SelectMenuOption, 0, len(modes)+1)
-	for _, mode := range modes {
+	options := make([]discordgo.SelectMenuOption, 0, len(store.AccessModes)+1)
+	for _, mode := range store.AccessModes {
 		options = append(options, discordgo.SelectMenuOption{
 			Label: partyModeLabel[mode],
 			Value: mode,

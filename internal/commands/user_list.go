@@ -11,54 +11,59 @@ import (
 	"xlparties/internal/store"
 )
 
-func handleRelationships(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
+func handleUserList(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) {
 	caller, err := callerID(i)
 	if err != nil {
-		logger.Error("relationships: resolve caller id", "error", err)
+		logger.Error("user_list: resolve caller id", "error", err)
 		respondEphemeral(s, i, messages.FailedResolveCaller)
 		return
 	}
 
-	friendOnlyIDs, err := st.AllowedFriendIDs(caller)
+	bestieIDs, err := st.AllowedFavoriteIDs(caller)
 	if err != nil {
-		logger.Error("relationships: friends", "error", err)
+		logger.Error("user_list: besties", "error", err)
 		respondEphemeral(s, i, messages.FailedListRelationships)
 		return
 	}
-	blockedIDs, err := st.BlockIDs(caller)
+	friendOnlyIDs, err := st.FriendOnlyIDs(caller)
 	if err != nil {
-		logger.Error("relationships: enemies", "error", err)
+		logger.Error("user_list: friends", "error", err)
+		respondEphemeral(s, i, messages.FailedListRelationships)
+		return
+	}
+	enemyOnlyIDs, err := st.EnemyIDs(caller)
+	if err != nil {
+		logger.Error("user_list: enemies", "error", err)
 		respondEphemeral(s, i, messages.FailedListRelationships)
 		return
 	}
 	frenemyIDs, err := st.FrenemyIDs(caller)
 	if err != nil {
-		logger.Error("relationships: frenemies", "error", err)
+		logger.Error("user_list: frenemies", "error", err)
+		respondEphemeral(s, i, messages.FailedListRelationships)
+		return
+	}
+	bestFrenemyIDs, err := st.BestFrenemyIDs(caller)
+	if err != nil {
+		logger.Error("user_list: best frenemies", "error", err)
 		respondEphemeral(s, i, messages.FailedListRelationships)
 		return
 	}
 
-	isFrenemy := make(map[int64]bool, len(frenemyIDs))
-	for _, id := range frenemyIDs {
-		isFrenemy[id] = true
-	}
-	var enemyOnlyIDs []int64
-	for _, id := range blockedIDs {
-		if !isFrenemy[id] {
-			enemyOnlyIDs = append(enemyOnlyIDs, id)
-		}
-	}
-
-	if len(friendOnlyIDs) == 0 && len(enemyOnlyIDs) == 0 && len(frenemyIDs) == 0 {
+	if len(bestieIDs) == 0 && len(friendOnlyIDs) == 0 && len(enemyOnlyIDs) == 0 && len(frenemyIDs) == 0 && len(bestFrenemyIDs) == 0 {
 		respondEphemeral(s, i, messages.NoRelationships)
 		return
 	}
 
 	var sections []string
+	sections = append(sections, fmt.Sprintf(messages.BestieListHeader, mentionListOr(bestieIDs, messages.NoOverrides)))
 	sections = append(sections, fmt.Sprintf(messages.FriendListHeader, mentionListOr(friendOnlyIDs, messages.NoOverrides)))
 	sections = append(sections, fmt.Sprintf(messages.EnemyListHeader, mentionListOr(enemyOnlyIDs, messages.NoOverrides)))
 	if len(frenemyIDs) > 0 {
 		sections = append(sections, fmt.Sprintf(messages.FrenemyListHeader, mentionList(frenemyIDs)))
+	}
+	if len(bestFrenemyIDs) > 0 {
+		sections = append(sections, fmt.Sprintf(messages.BestFrenemyListHeader, mentionList(bestFrenemyIDs)))
 	}
 	respondEphemeral(s, i, strings.Join(sections, "\n\n"))
 }

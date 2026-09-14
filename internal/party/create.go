@@ -73,12 +73,9 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 		return 0, false, fmt.Errorf("resolve user limit for owner %d: %w", ownerID, err)
 	}
 
-	var friendIDs []int64
-	if mode != store.AccessModePublic {
-		friendIDs, err = m.store.AllowedFriendIDs(ownerID)
-		if err != nil {
-			return 0, false, fmt.Errorf("load friends for owner %d: %w", ownerID, err)
-		}
+	autoAllowedIDs, err := autoAllowIDs(m.store, ownerID, mode)
+	if err != nil {
+		return 0, false, fmt.Errorf("resolve auto-allow set for owner %d: %w", ownerID, err)
 	}
 
 	categoryID, _, err := m.store.GetConfig(store.ConfigKeyCategory)
@@ -103,7 +100,7 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 		return 0, false, fmt.Errorf("load blocked users for owner %d: %w", ownerID, err)
 	}
 
-	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.alwaysAllowedRoleIDs, m.botID, ownerID, mode, friendIDs, nil, nil, blockedIDs, nil)
+	overwrites, err := buildRewriteOverwrites(m.store, m.guildID, m.alwaysAllowedRoleIDs, m.botID, ownerID, mode, autoAllowedIDs, nil, nil, blockedIDs, nil)
 	if err != nil {
 		return 0, false, fmt.Errorf("build overwrites for owner %d: %w", ownerID, err)
 	}
@@ -139,9 +136,22 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 	}
 
 	// Send salutations message to the new channel's text chat
-	salutation := fmt.Sprintf(messages.PartyCreated, ownerID, messages.AccessModeLabel[mode], len(friendIDs))
-	if mode == store.AccessModePublic {
+	var salutation, warning string
+	switch mode {
+	case store.AccessModePublic:
 		salutation = fmt.Sprintf(messages.PartyCreatedPublic, ownerID)
+	case store.AccessModeBestiesOnly:
+		salutation = fmt.Sprintf(messages.PartyCreatedBesties, ownerID, messages.AccessModeLabel[mode], len(autoAllowedIDs))
+		if len(autoAllowedIDs) == 0 {
+			warning = messages.PartyCreatedNoBestiesWarning
+		}
+	case store.AccessModeInviteOnly:
+		salutation = fmt.Sprintf(messages.PartyCreatedInviteOnly, ownerID, messages.AccessModeLabel[mode])
+	default: // friends_of_friends, friends_only
+		salutation = fmt.Sprintf(messages.PartyCreated, ownerID, messages.AccessModeLabel[mode], len(autoAllowedIDs))
+		if len(autoAllowedIDs) == 0 {
+			warning = messages.PartyCreatedNoFriendsWarning
+		}
 	}
 	if !hasPreset {
 		salutation += "\n\n" + messages.PartyPresetTip
@@ -149,13 +159,13 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 	if _, err := m.session.ChannelMessageSend(channel.ID, salutation); err != nil {
 		logger.Error("party creation: post salutations", "channel", newChannelID, "error", err)
 	}
-	if mode != store.AccessModePublic && len(friendIDs) == 0 {
-		if _, err := m.session.ChannelMessageSend(channel.ID, messages.PartyCreatedNoFriendsWarning); err != nil {
-			logger.Error("party creation: post no-friends warning", "channel", newChannelID, "error", err)
+	if warning != "" {
+		if _, err := m.session.ChannelMessageSend(channel.ID, warning); err != nil {
+			logger.Error("party creation: post auto-allow warning", "channel", newChannelID, "error", err)
 		}
 	}
 
-	logger.Info("party created", "channel", newChannelID, "owner", ownerID, "friends", len(friendIDs), "moved", moved)
+	logger.Info("party created", "channel", newChannelID, "owner", ownerID, "auto_allowed", len(autoAllowedIDs), "moved", moved)
 	return newChannelID, false, nil
 }
 
@@ -168,12 +178,10 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 // an existing one.
 func resolveAccessMode(st *store.Store, ownerID int64, modeOverride string) (string, bool, error) {
 	if modeOverride != "" {
-		switch modeOverride {
-		case store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly, store.AccessModePublic:
-			return modeOverride, true, nil
-		default:
+		if !store.ValidAccessMode(modeOverride) {
 			return "", false, fmt.Errorf("unknown access mode %q", modeOverride)
 		}
+		return modeOverride, true, nil
 	}
 
 	mode, found, err := st.PresetForUser(ownerID)

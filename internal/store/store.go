@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -25,9 +27,27 @@ const (
 const (
 	AccessModeFriendsOfFriends = "friends_of_friends"
 	AccessModeFriendsOnly      = "friends_only"
+	AccessModeBestiesOnly      = "besties_only"
 	AccessModeInviteOnly       = "invite_only"
 	AccessModePublic           = "public"
 )
+
+// AccessModes lists every valid access mode in display order, for building
+// command choices and iterating mode-dependent UI.
+var AccessModes = []string{
+	AccessModeFriendsOfFriends,
+	AccessModeFriendsOnly,
+	AccessModeBestiesOnly,
+	AccessModeInviteOnly,
+	AccessModePublic,
+}
+
+// ValidAccessMode reports whether mode is one of the AccessMode* constants.
+// This is the sole validation of access_mode values now that the column no
+// longer carries a CHECK constraint (see schema.sql).
+func ValidAccessMode(mode string) bool {
+	return slices.Contains(AccessModes, mode)
+}
 
 // DefaultAccessMode is the mode a party is created in when nothing else
 // (e.g. a future saved preset) resolves a different one.
@@ -110,6 +130,13 @@ func (s *Store) UpsertBlock(granterID, granteeID int64) error {
 	return s.upsertRelationshipFlag(granterID, granteeID, "is_blocked")
 }
 
+// UpsertFavorite marks granteeID as one of granterID's besties. Leaves any
+// existing friend/block flag untouched. Callers are expected to enforce the
+// favorite-implies-friend invariant (no DB constraint backs it).
+func (s *Store) UpsertFavorite(granterID, granteeID int64) error {
+	return s.upsertRelationshipFlag(granterID, granteeID, "is_favorite")
+}
+
 func (s *Store) upsertRelationshipFlag(granterID, granteeID int64, flagColumn string) error {
 	if err := s.upsertUser(granterID); err != nil {
 		return err
@@ -129,26 +156,42 @@ func (s *Store) upsertRelationshipFlag(granterID, granteeID int64, flagColumn st
 	return nil
 }
 
-// RemoveFriend clears the friend flag on the (granterID, granteeID) edge,
+// RemoveFriend clears the friend and favorite flags on the (granterID,
+// granteeID) edge (favorite implies friend, so unfriending drops both),
 // deleting the row entirely if the block flag is also unset.
 func (s *Store) RemoveFriend(granterID, granteeID int64) error {
-	return s.removeRelationshipFlag(granterID, granteeID, "is_friend")
+	return s.removeRelationshipFlags(granterID, granteeID, "is_friend", "is_favorite")
+}
+
+// RemoveFavorite clears the favorite flag on the (granterID, granteeID)
+// edge, deleting the row entirely if the friend and block flags are also
+// unset.
+func (s *Store) RemoveFavorite(granterID, granteeID int64) error {
+	return s.removeRelationshipFlags(granterID, granteeID, "is_favorite")
 }
 
 // RemoveBlock clears the block flag on the (granterID, granteeID) edge,
-// deleting the row entirely if the friend flag is also unset.
+// deleting the row entirely if the friend and favorite flags are also unset.
 func (s *Store) RemoveBlock(granterID, granteeID int64) error {
-	return s.removeRelationshipFlag(granterID, granteeID, "is_blocked")
+	return s.removeRelationshipFlags(granterID, granteeID, "is_blocked")
 }
 
-func (s *Store) removeRelationshipFlag(granterID, granteeID int64, flagColumn string) error {
+// removeRelationshipFlags clears one or more flag columns on the
+// (granterID, granteeID) edge in a single UPDATE, then prunes the row if
+// every flag is now unset.
+func (s *Store) removeRelationshipFlags(granterID, granteeID int64, flagColumns ...string) error {
+	sets := make([]string, len(flagColumns))
+	for i, col := range flagColumns {
+		sets[i] = fmt.Sprintf("%s = 0", col)
+	}
 	if _, err := s.db.Exec(fmt.Sprintf(`
-		UPDATE relationships SET %s = 0 WHERE granter_id = ? AND grantee_id = ?
-	`, flagColumn), granterID, granteeID); err != nil {
-		return fmt.Errorf("clear relationship flag %s (%d,%d): %w", flagColumn, granterID, granteeID, err)
+		UPDATE relationships SET %s WHERE granter_id = ? AND grantee_id = ?
+	`, strings.Join(sets, ", ")), granterID, granteeID); err != nil {
+		return fmt.Errorf("clear relationship flags %v (%d,%d): %w", flagColumns, granterID, granteeID, err)
 	}
 	if _, err := s.db.Exec(`
-		DELETE FROM relationships WHERE granter_id = ? AND grantee_id = ? AND is_friend = 0 AND is_blocked = 0
+		DELETE FROM relationships
+		WHERE granter_id = ? AND grantee_id = ? AND is_friend = 0 AND is_blocked = 0 AND is_favorite = 0
 	`, granterID, granteeID); err != nil {
 		return fmt.Errorf("prune empty relationship (%d,%d): %w", granterID, granteeID, err)
 	}
@@ -165,6 +208,12 @@ func (s *Store) IsFriend(granterID, granteeID int64) (bool, error) {
 // friend status).
 func (s *Store) IsBlocked(granterID, granteeID int64) (bool, error) {
 	return s.relationshipFlagSet(granterID, granteeID, "is_blocked")
+}
+
+// IsFavorite reports whether granterID has favorited (bestied) granteeID
+// (regardless of block status).
+func (s *Store) IsFavorite(granterID, granteeID int64) (bool, error) {
+	return s.relationshipFlagSet(granterID, granteeID, "is_favorite")
 }
 
 func (s *Store) relationshipFlagSet(granterID, granteeID int64, flagColumn string) (bool, error) {
@@ -199,10 +248,37 @@ func (s *Store) AllowedFriendIDs(ownerID int64) ([]int64, error) {
 	return s.relationshipIDs(ownerID, "is_friend = 1 AND is_blocked = 0")
 }
 
+// AllowedFavoriteIDs returns the ids of every user ownerID has favorited
+// (bestied) and has not also blocked - the auto-allow set for besties_only
+// overwrite building, and also the Besties list section (favorite implies
+// friend, so favorite alone is a sufficient and mutually-exclusive
+// condition for that section).
+func (s *Store) AllowedFavoriteIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "is_favorite = 1 AND is_blocked = 0")
+}
+
+// FriendOnlyIDs returns the ids of every user ownerID has friended, not
+// favorited, and not blocked - the Friends list section.
+func (s *Store) FriendOnlyIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "is_friend = 1 AND is_favorite = 0 AND is_blocked = 0")
+}
+
+// EnemyIDs returns the ids of every user ownerID has blocked and not
+// friended - the Enemies list section.
+func (s *Store) EnemyIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "is_blocked = 1 AND is_friend = 0")
+}
+
 // FrenemyIDs returns the ids of every user ownerID has both friended and
-// blocked.
+// blocked, but not favorited - the Frenemies list section.
 func (s *Store) FrenemyIDs(ownerID int64) ([]int64, error) {
-	return s.relationshipIDs(ownerID, "is_friend = 1 AND is_blocked = 1")
+	return s.relationshipIDs(ownerID, "is_friend = 1 AND is_blocked = 1 AND is_favorite = 0")
+}
+
+// BestFrenemyIDs returns the ids of every user ownerID has both favorited
+// and blocked - the Best Frenemies list section.
+func (s *Store) BestFrenemyIDs(ownerID int64) ([]int64, error) {
+	return s.relationshipIDs(ownerID, "is_blocked = 1 AND is_favorite = 1")
 }
 
 func (s *Store) relationshipIDs(granterID int64, predicate string) ([]int64, error) {
@@ -257,6 +333,9 @@ func (s *Store) SetConfig(key, value string) error {
 // InsertParty records a newly created party channel with the given access
 // mode.
 func (s *Store) InsertParty(channelID, ownerID int64, mode string) error {
+	if !ValidAccessMode(mode) {
+		return fmt.Errorf("insert party %d: invalid access mode %q", channelID, mode)
+	}
 	_, err := s.db.Exec(`
 		INSERT INTO parties (channel_id, owner_id, created_at, access_mode) VALUES (?, ?, ?, ?)
 	`, channelID, ownerID, time.Now().Unix(), mode)
@@ -325,10 +404,14 @@ func (s *Store) UpdateOwner(channelID, newOwnerID int64) error {
 	return nil
 }
 
-// UpdateAccessMode changes channelID's access_mode, on /party_mode. The
-// CHECK constraint on the column is the only validation of mode; callers are
-// expected to pass one of the AccessMode* constants.
+// UpdateAccessMode changes channelID's access_mode, on /party_mode.
+// ValidAccessMode is the only validation of mode - the column no longer
+// carries a CHECK constraint (see schema.sql) - so this rejects anything
+// other than an AccessMode* constant before writing.
 func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
+	if !ValidAccessMode(mode) {
+		return fmt.Errorf("update access_mode for party %d: invalid access mode %q", channelID, mode)
+	}
 	_, err := s.db.Exec(`UPDATE parties SET access_mode = ? WHERE channel_id = ?`, mode, channelID)
 	if err != nil {
 		return fmt.Errorf("update access_mode for party %d: %w", channelID, err)
@@ -342,6 +425,9 @@ func (s *Store) UpdateAccessMode(channelID int64, mode string) error {
 // their next party creation. The user_limit column keeps its current value
 // (0 for a new row).
 func (s *Store) UpsertPreset(userID int64, mode string) error {
+	if !ValidAccessMode(mode) {
+		return fmt.Errorf("upsert preset for user %d: invalid access mode %q", userID, mode)
+	}
 	_, err := s.db.Exec(`
 		INSERT INTO user_presets (user_id, access_mode) VALUES (?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET access_mode = excluded.access_mode

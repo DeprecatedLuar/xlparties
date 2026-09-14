@@ -16,9 +16,7 @@ import (
 // member currently present, so growth resumes without requiring a
 // leave/rejoin.
 func (m *Manager) SetAccessMode(channelID int64, mode string) error {
-	switch mode {
-	case store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly, store.AccessModeInviteOnly, store.AccessModePublic:
-	default:
+	if !store.ValidAccessMode(mode) {
 		return fmt.Errorf("unknown access mode %q", mode)
 	}
 

@@ -23,10 +23,13 @@ type column struct {
 // entry here.
 var expectedColumns = map[string][]column{
 	"parties": {
-		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))"},
+		{name: "access_mode", ddl: "TEXT NOT NULL DEFAULT 'friends_of_friends'"},
 	},
 	"user_presets": {
 		{name: "user_limit", ddl: "INTEGER NOT NULL DEFAULT 0 CHECK (user_limit BETWEEN 0 AND 99)"},
+	},
+	"relationships": {
+		{name: "is_favorite", ddl: "INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0,1))"},
 	},
 }
 
@@ -61,8 +64,8 @@ func migrateSchema(db *sql.DB) error {
 			logger.Info("store: migrated schema, added column", "table", table, "column", col.name)
 		}
 	}
-	if err := migratePartiesAccessModeCheck(db); err != nil {
-		return fmt.Errorf("widen parties.access_mode check: %w", err)
+	if err := migrateDropAccessModeChecks(db); err != nil {
+		return fmt.Errorf("drop access_mode check constraints: %w", err)
 	}
 	if err := migrateRelationshipsFlags(db); err != nil {
 		return fmt.Errorf("migrate relationships to friend/block flags: %w", err)
@@ -90,15 +93,20 @@ func migrateRelationshipsFlags(db *sql.DB) error {
 	statements := []string{
 		"PRAGMA foreign_keys = OFF",
 		`CREATE TABLE relationships_new (
-			granter_id INTEGER NOT NULL REFERENCES users(id),
-			grantee_id INTEGER NOT NULL REFERENCES users(id),
-			is_friend  INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0,1)),
-			is_blocked INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0,1)),
-			created_at INTEGER NOT NULL,
+			granter_id  INTEGER NOT NULL REFERENCES users(id),
+			grantee_id  INTEGER NOT NULL REFERENCES users(id),
+			is_friend   INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0,1)),
+			is_favorite INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0,1)),
+			is_blocked  INTEGER NOT NULL DEFAULT 0 CHECK (is_blocked IN (0,1)),
+			created_at  INTEGER NOT NULL,
 			PRIMARY KEY (granter_id, grantee_id)
 		)`,
-		`INSERT INTO relationships_new (granter_id, grantee_id, is_friend, is_blocked, created_at)
-			SELECT granter_id, grantee_id, relation_type = 'friend', relation_type = 'block', created_at FROM relationships`,
+		// is_favorite already exists on the old table by this point (added
+		// above by the expectedColumns loop, which runs before this
+		// rebuild), so it is carried across like any other column rather
+		// than derived from relation_type.
+		`INSERT INTO relationships_new (granter_id, grantee_id, is_friend, is_favorite, is_blocked, created_at)
+			SELECT granter_id, grantee_id, relation_type = 'friend', is_favorite, relation_type = 'block', created_at FROM relationships`,
 		`DROP TABLE relationships`,
 		`ALTER TABLE relationships_new RENAME TO relationships`,
 		`CREATE INDEX IF NOT EXISTS idx_grantee ON relationships(grantee_id)`,
@@ -113,22 +121,32 @@ func migrateRelationshipsFlags(db *sql.DB) error {
 	return nil
 }
 
-// migratePartiesAccessModeCheck rebuilds the parties table if its
-// access_mode CHECK constraint predates the invite_only or public modes.
-// SQLite has no ALTER TABLE form for changing a CHECK constraint, so the
-// only way to widen one on an existing table is to recreate it under the DDL
-// in schema.sql and copy the data across. A no-op once the table already
-// matches.
-func migratePartiesAccessModeCheck(db *sql.DB) error {
+// migrateDropAccessModeChecks rebuilds parties and/or user_presets if their
+// access_mode column still carries a CHECK constraint, whatever shape it is
+// (mode validation now lives in Go, store.ValidAccessMode, not SQLite).
+// SQLite has no ALTER TABLE form for dropping a CHECK constraint, so the
+// only way is to recreate the table under the DDL in schema.sql and copy the
+// data across. A no-op once a table's CHECK is already gone.
+func migrateDropAccessModeChecks(db *sql.DB) error {
+	if err := migrateDropPartiesAccessModeCheck(db); err != nil {
+		return fmt.Errorf("parties: %w", err)
+	}
+	if err := migrateDropUserPresetsAccessModeCheck(db); err != nil {
+		return fmt.Errorf("user_presets: %w", err)
+	}
+	return nil
+}
+
+func migrateDropPartiesAccessModeCheck(db *sql.DB) error {
 	var tableSQL sql.NullString
 	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'parties'`).Scan(&tableSQL)
 	if err == sql.ErrNoRows {
 		return nil // fresh schema.sql apply already created the current shape
 	}
 	if err != nil {
-		return fmt.Errorf("read parties table definition: %w", err)
+		return fmt.Errorf("read table definition: %w", err)
 	}
-	if strings.Contains(tableSQL.String, "public") {
+	if !strings.Contains(tableSQL.String, "CHECK (access_mode") {
 		return nil // already current
 	}
 
@@ -138,7 +156,7 @@ func migratePartiesAccessModeCheck(db *sql.DB) error {
 			channel_id  INTEGER PRIMARY KEY,
 			owner_id    INTEGER NOT NULL,
 			created_at  INTEGER NOT NULL,
-			access_mode TEXT NOT NULL DEFAULT 'friends_of_friends' CHECK (access_mode IN ('friends_of_friends','friends_only','invite_only','public'))
+			access_mode TEXT NOT NULL DEFAULT 'public'
 		)`,
 		`INSERT INTO parties_new (channel_id, owner_id, created_at, access_mode) SELECT channel_id, owner_id, created_at, access_mode FROM parties`,
 		`DROP TABLE parties`,
@@ -150,7 +168,41 @@ func migratePartiesAccessModeCheck(db *sql.DB) error {
 			return fmt.Errorf("exec %q: %w", stmt, err)
 		}
 	}
-	logger.Info("store: migrated schema, widened parties.access_mode check to include public")
+	logger.Info("store: migrated schema, dropped parties.access_mode check constraint")
+	return nil
+}
+
+func migrateDropUserPresetsAccessModeCheck(db *sql.DB) error {
+	var tableSQL sql.NullString
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'user_presets'`).Scan(&tableSQL)
+	if err == sql.ErrNoRows {
+		return nil // fresh schema.sql apply already created the current shape
+	}
+	if err != nil {
+		return fmt.Errorf("read table definition: %w", err)
+	}
+	if !strings.Contains(tableSQL.String, "CHECK (access_mode") {
+		return nil // already current
+	}
+
+	statements := []string{
+		"PRAGMA foreign_keys = OFF",
+		`CREATE TABLE user_presets_new (
+			user_id     INTEGER PRIMARY KEY,
+			access_mode TEXT NOT NULL,
+			user_limit  INTEGER NOT NULL DEFAULT 0 CHECK (user_limit BETWEEN 0 AND 99)
+		)`,
+		`INSERT INTO user_presets_new (user_id, access_mode, user_limit) SELECT user_id, access_mode, user_limit FROM user_presets`,
+		`DROP TABLE user_presets`,
+		`ALTER TABLE user_presets_new RENAME TO user_presets`,
+		"PRAGMA foreign_keys = ON",
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("exec %q: %w", stmt, err)
+		}
+	}
+	logger.Info("store: migrated schema, dropped user_presets.access_mode check constraint")
 	return nil
 }
 

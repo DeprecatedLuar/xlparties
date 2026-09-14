@@ -2,6 +2,7 @@ package party
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -334,6 +335,7 @@ func TestBuildRewriteOverwritesAlwaysAllowsBot(t *testing.T) {
 	for _, mode := range []string{
 		store.AccessModeFriendsOfFriends,
 		store.AccessModeFriendsOnly,
+		store.AccessModeBestiesOnly,
 		store.AccessModeInviteOnly,
 		store.AccessModePublic,
 	} {
@@ -398,6 +400,7 @@ func TestBuildRewriteOverwritesAlwaysAllowedRolesInEveryMode(t *testing.T) {
 	for _, mode := range []string{
 		store.AccessModeFriendsOfFriends,
 		store.AccessModeFriendsOnly,
+		store.AccessModeBestiesOnly,
 		store.AccessModeInviteOnly,
 		store.AccessModePublic,
 	} {
@@ -418,6 +421,140 @@ func TestBuildRewriteOverwritesAlwaysAllowedRolesInEveryMode(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestAutoAllowIDsFriendsModesUseAllowedFriends(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, friend = int64(1001), int64(1002)
+	if err := s.UpsertFriend(owner, friend); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+
+	for _, mode := range []string{store.AccessModeFriendsOfFriends, store.AccessModeFriendsOnly} {
+		ids, err := autoAllowIDs(s, owner, mode)
+		if err != nil {
+			t.Fatalf("autoAllowIDs(%s): %v", mode, err)
+		}
+		if !slices.Contains(ids, friend) {
+			t.Errorf("%s: expected friend %d in auto-allow set, got %v", mode, friend, ids)
+		}
+	}
+}
+
+func TestAutoAllowIDsBestiesOnlyUsesAllowedFavorites(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, bestie, plainFriend = int64(1001), int64(1002), int64(1003)
+	if err := s.UpsertFavorite(owner, bestie); err != nil {
+		t.Fatalf("UpsertFavorite: %v", err)
+	}
+	if err := s.UpsertFriend(owner, plainFriend); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+
+	ids, err := autoAllowIDs(s, owner, store.AccessModeBestiesOnly)
+	if err != nil {
+		t.Fatalf("autoAllowIDs: %v", err)
+	}
+	if !slices.Contains(ids, bestie) {
+		t.Errorf("expected bestie %d in auto-allow set, got %v", bestie, ids)
+	}
+	if slices.Contains(ids, plainFriend) {
+		t.Errorf("expected plain friend %d NOT in besties_only auto-allow set, got %v", plainFriend, ids)
+	}
+}
+
+func TestAutoAllowIDsInviteOnlyAndPublicReturnNilEvenWithFriends(t *testing.T) {
+	s := openTestStore(t)
+
+	const owner, friend = int64(1001), int64(1002)
+	if err := s.UpsertFriend(owner, friend); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+	if err := s.UpsertFavorite(owner, friend); err != nil {
+		t.Fatalf("UpsertFavorite: %v", err)
+	}
+
+	for _, mode := range []string{store.AccessModeInviteOnly, store.AccessModePublic} {
+		ids, err := autoAllowIDs(s, owner, mode)
+		if err != nil {
+			t.Fatalf("autoAllowIDs(%s): %v", mode, err)
+		}
+		if len(ids) != 0 {
+			t.Errorf("%s: expected no auto-allow ids despite owner having friends, got %v", mode, ids)
+		}
+	}
+}
+
+func TestBuildRewriteOverwritesBestiesOnlyAllowsBestieNotPlainFriend(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, bestie, plainFriend = int64(1001), int64(1002), int64(1003)
+
+	if err := s.UpsertFavorite(owner, bestie); err != nil {
+		t.Fatalf("UpsertFavorite: %v", err)
+	}
+	if err := s.UpsertFriend(owner, plainFriend); err != nil {
+		t.Fatalf("UpsertFriend: %v", err)
+	}
+
+	autoAllowedIDs, err := autoAllowIDs(s, owner, store.AccessModeBestiesOnly)
+	if err != nil {
+		t.Fatalf("autoAllowIDs: %v", err)
+	}
+
+	overwrites, err := buildRewriteOverwrites(s, guildID, nil, botID, owner, store.AccessModeBestiesOnly, autoAllowedIDs, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	allowed := allowedIDs(t, overwrites)
+	if !allowed[formatID(bestie)] {
+		t.Errorf("expected bestie %d to be allowed, allowed set = %v", bestie, allowed)
+	}
+	if allowed[formatID(plainFriend)] {
+		t.Errorf("expected plain friend %d NOT to be allowed in besties_only, allowed set = %v", plainFriend, allowed)
+	}
+}
+
+func TestBuildRewriteOverwritesBestiesOnlyDeniesBlockedBestie(t *testing.T) {
+	s := openTestStore(t)
+
+	const guildID = "1"
+	const owner, blockedBestie = int64(1001), int64(1002)
+
+	if err := s.UpsertFavorite(owner, blockedBestie); err != nil {
+		t.Fatalf("UpsertFavorite: %v", err)
+	}
+	if err := s.UpsertBlock(owner, blockedBestie); err != nil {
+		t.Fatalf("UpsertBlock: %v", err)
+	}
+
+	autoAllowedIDs, err := autoAllowIDs(s, owner, store.AccessModeBestiesOnly)
+	if err != nil {
+		t.Fatalf("autoAllowIDs: %v", err)
+	}
+	blockedIDs, err := s.BlockIDs(owner)
+	if err != nil {
+		t.Fatalf("BlockIDs: %v", err)
+	}
+
+	overwrites, err := buildRewriteOverwrites(s, guildID, nil, botID, owner, store.AccessModeBestiesOnly, autoAllowedIDs, nil, nil, blockedIDs, nil)
+	if err != nil {
+		t.Fatalf("buildRewriteOverwrites: %v", err)
+	}
+
+	for _, ow := range overwrites {
+		if ow.Type == discordgo.PermissionOverwriteTypeMember && ow.ID == formatID(blockedBestie) {
+			if ow.Deny&PartyChannelPermissions != PartyChannelPermissions {
+				t.Fatalf("expected blocked bestie %d to be denied, got overwrite %+v", blockedBestie, ow)
+			}
+			return
+		}
+	}
+	t.Fatalf("no overwrite found for blocked bestie %d", blockedBestie)
 }
 
 func memberOverwriteByID(overwrites []*discordgo.PermissionOverwrite, userID int64) *discordgo.PermissionOverwrite {

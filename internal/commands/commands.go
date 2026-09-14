@@ -25,28 +25,38 @@ const limitOptionMax = 99.0
 
 var specs = []*discordgo.ApplicationCommand{
 	{
-		Name:        "friend_add",
+		Name:        "user_friend",
 		Description: "Add a user as a friend, granting them default access to your party",
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as a friend")},
 	},
 	{
-		Name:        "friend_remove",
+		Name:        "user_unfriend",
 		Description: "Remove a user as a friend",
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as a friend")},
 	},
 	{
-		Name:        "enemy_add",
+		Name:        "user_block",
 		Description: "Add a user as an enemy, blocking them from your party by default",
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as an enemy")},
 	},
 	{
-		Name:        "enemy_remove",
+		Name:        "user_unblock",
 		Description: "Remove a user as an enemy",
 		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as an enemy")},
 	},
 	{
-		Name:        "relationships",
-		Description: "List your friends, enemies, and frenemies",
+		Name:        "user_favorite",
+		Description: "Add a user as a bestie, granting them default access to your besties-only party",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as a bestie")},
+	},
+	{
+		Name:        "user_unfavorite",
+		Description: "Remove a user as a bestie (they remain a friend)",
+		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as a bestie")},
+	},
+	{
+		Name:        "user_list",
+		Description: "List your besties, friends, enemies, and frenemies",
 	},
 	{
 		Name:        "party_allow",
@@ -81,12 +91,7 @@ var specs = []*discordgo.ApplicationCommand{
 				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "mode",
 				Description: "Access mode for this party (defaults to your saved preset)",
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Friends of friends", Value: store.AccessModeFriendsOfFriends},
-					{Name: "Friends only", Value: store.AccessModeFriendsOnly},
-					{Name: "Invite only", Value: store.AccessModeInviteOnly},
-					{Name: "Public", Value: store.AccessModePublic},
-				},
+				Choices:     accessModeChoices(),
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionInteger,
@@ -105,12 +110,7 @@ var specs = []*discordgo.ApplicationCommand{
 				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "mode",
 				Description: "The access mode to switch to",
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Friends of friends", Value: store.AccessModeFriendsOfFriends},
-					{Name: "Friends only", Value: store.AccessModeFriendsOnly},
-					{Name: "Invite only", Value: store.AccessModeInviteOnly},
-					{Name: "Public", Value: store.AccessModePublic},
-				},
+				Choices:     accessModeChoices(),
 			},
 		},
 	},
@@ -140,13 +140,7 @@ var specs = []*discordgo.ApplicationCommand{
 				Type:        discordgo.ApplicationCommandOptionString,
 				Name:        "mode",
 				Description: "The default access mode to save",
-				Choices: []*discordgo.ApplicationCommandOptionChoice{
-					{Name: "Friends of friends", Value: store.AccessModeFriendsOfFriends},
-					{Name: "Friends only", Value: store.AccessModeFriendsOnly},
-					{Name: "Invite only", Value: store.AccessModeInviteOnly},
-					{Name: "Public", Value: store.AccessModePublic},
-					{Name: "Clear (use default)", Value: partyPresetClearValue},
-				},
+				Choices:     append(accessModeChoices(), &discordgo.ApplicationCommandOptionChoice{Name: "Clear (use default)", Value: partyPresetClearValue}),
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionInteger,
@@ -198,6 +192,18 @@ var specs = []*discordgo.ApplicationCommand{
 	},
 }
 
+// accessModeChoices builds the slash-command Choices list for every
+// store.AccessMode* constant, in store.AccessModes display order, labeled
+// via partyModeLabel. Shared by party_create, party_mode, and party_preset
+// so the mode list is defined once instead of copied per command.
+func accessModeChoices() []*discordgo.ApplicationCommandOptionChoice {
+	choices := make([]*discordgo.ApplicationCommandOptionChoice, 0, len(store.AccessModes))
+	for _, mode := range store.AccessModes {
+		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: partyModeLabel[mode], Value: mode})
+	}
+	return choices
+}
+
 func userOption(description string) *discordgo.ApplicationCommandOption {
 	return &discordgo.ApplicationCommandOption{
 		Type:        discordgo.ApplicationCommandOptionUser,
@@ -210,12 +216,12 @@ func userOption(description string) *discordgo.ApplicationCommandOption {
 type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)
 
 var handlers = map[string]handlerFunc{
-	"relationships": handleRelationships,
-	"party_kick":    handlePartyKick,
-	"party_info":    handlePartyInfo,
-	"party_preset":  handlePartyPreset,
-	"configure":     handleConfigure,
-	"help":          handleHelp,
+	"user_list":    handleUserList,
+	"party_kick":   handlePartyKick,
+	"party_info":   handlePartyInfo,
+	"party_preset": handlePartyPreset,
+	"configure":    handleConfigure,
+	"help":         handleHelp,
 }
 
 // Register creates every command guild-scoped and wires interaction routing.
@@ -241,20 +247,28 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 	case discordgo.InteractionApplicationCommand:
 		name := i.ApplicationCommandData().Name
 		logger.Info("command invoked", "command", name, "caller", i.Member.User.ID)
-		if name == "friend_add" {
-			handleFriendAdd(s, i, st, partyManager)
+		if name == "user_friend" {
+			handleUserFriend(s, i, st, partyManager)
 			return
 		}
-		if name == "friend_remove" {
-			handleFriendRemove(s, i, st, partyManager)
+		if name == "user_unfriend" {
+			handleUserUnfriend(s, i, st, partyManager)
 			return
 		}
-		if name == "enemy_add" {
-			handleEnemyAdd(s, i, st, partyManager)
+		if name == "user_block" {
+			handleUserBlock(s, i, st, partyManager)
 			return
 		}
-		if name == "enemy_remove" {
-			handleEnemyRemove(s, i, st, partyManager)
+		if name == "user_unblock" {
+			handleUserUnblock(s, i, st, partyManager)
+			return
+		}
+		if name == "user_favorite" {
+			handleUserFavorite(s, i, st, partyManager)
+			return
+		}
+		if name == "user_unfavorite" {
+			handleUserUnfavorite(s, i, st, partyManager)
 			return
 		}
 		if name == "party_create" {
