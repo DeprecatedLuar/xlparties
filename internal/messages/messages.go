@@ -111,7 +111,7 @@ const (
 const (
 	FailedAddFavorite         = "Errm... it seems *I* failed to add the bestie (please panic)"
 	AlreadyFavorite           = "<@%d> seems to already be your bestie"
-	FavoriteAdded             = "<@%d> is now your BESTIE - automatically allowed into your besties-only parties"
+	FavoriteAdded             = "Now you and <@%d> shall be besties. Yipee (They are allowed on the `Besties Only` party mode)"
 	FavoriteAddedStillBlocked = "<@%d> is your bestie now, but you still have them blocked - a best frenemy. They stay locked out until you `/user_unblock` them"
 )
 
