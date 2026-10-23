@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -10,56 +11,111 @@ import (
 	"xlparties/internal/messages"
 )
 
+// userOptionBaseName names the first user slot; further slots append their
+// 1-based index.
+const userOptionBaseName = "user"
+
 // callerID returns the snowflake of the user who invoked the interaction.
 // Commands are guild-scoped only, so the caller is always a guild member.
 func callerID(i *discordgo.InteractionCreate) (int64, error) {
 	return strconv.ParseInt(i.Member.User.ID, 10, 64)
 }
 
-// userOptionID returns the snowflake of the "user" option's value.
-func userOptionID(i *discordgo.InteractionCreate) (int64, error) {
-	data := i.ApplicationCommandData()
-	for _, opt := range data.Options {
-		if opt.Name == "user" {
-			return strconv.ParseInt(opt.UserValue(nil).ID, 10, 64)
-		}
-	}
-	return 0, fmt.Errorf("missing required option %q", "user")
+// targetedCall is a resolved invocation of a command that acts on one or
+// more users: the caller, the valid targets, and one reply line for each
+// requested target that was skipped as invalid (self or the bot).
+type targetedCall struct {
+	caller  int64
+	targets []int64
+	skipped []string
 }
 
-// resolveCallerAndTarget resolves the caller and the "user" option,
-// reporting the user-facing message for whichever check failed (if any) so
-// the caller can respond however fits its own interaction flow, instead of
-// this function assuming a plain ephemeral respond.
-func resolveCallerAndTarget(s *discordgo.Session, i *discordgo.InteractionCreate) (caller, target int64, failure string, ok bool) {
+// userOptionIDs returns the snowflakes of every user option, in option
+// order, without duplicates.
+func userOptionIDs(i *discordgo.InteractionCreate) ([]int64, error) {
+	var ids []int64
+	seen := make(map[int64]bool)
+	for _, opt := range i.ApplicationCommandData().Options {
+		if opt.Type != discordgo.ApplicationCommandOptionUser {
+			continue
+		}
+		id, err := strconv.ParseInt(opt.UserValue(nil).ID, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("missing required option %q", userOptionName(1))
+	}
+	return ids, nil
+}
+
+// resolveTargetedCall resolves the caller and every user option, reporting
+// the user-facing message for whichever check failed (if any) so the caller
+// can respond however fits its own interaction flow. Self and bot targets
+// are skipped with a reply line; the call fails only when no valid target
+// remains.
+func resolveTargetedCall(s *discordgo.Session, i *discordgo.InteractionCreate) (call targetedCall, failure string, ok bool) {
 	caller, err := callerID(i)
 	if err != nil {
 		logger.Error("resolve caller id", "error", err)
-		return 0, 0, messages.FailedResolveCaller, false
+		return targetedCall{}, messages.FailedResolveCaller, false
 	}
-	target, err = userOptionID(i)
+	ids, err := userOptionIDs(i)
 	if err != nil {
-		logger.Error("resolve target user id", "error", err)
-		return 0, 0, messages.FailedResolveTarget, false
+		logger.Error("resolve target user ids", "error", err)
+		return targetedCall{}, messages.FailedResolveTarget, false
 	}
-	if target == caller {
-		return 0, 0, messages.CannotTargetSelf, false
+
+	call.caller = caller
+	for _, id := range ids {
+		switch {
+		case id == caller:
+			call.skipped = append(call.skipped, messages.CannotTargetSelf)
+		case strconv.FormatInt(id, 10) == s.State.User.ID:
+			call.skipped = append(call.skipped, messages.NuhUh)
+		default:
+			call.targets = append(call.targets, id)
+		}
 	}
-	if strconv.FormatInt(target, 10) == s.State.User.ID {
-		return 0, 0, messages.NuhUh, false
+	if len(call.targets) == 0 {
+		return targetedCall{}, strings.Join(call.skipped, "\n"), false
 	}
-	return caller, target, "", true
+	return call, "", true
 }
 
-// callerAndTarget is the resolveCallerAndTarget wrapper every handler that
+// callerAndTargets is the resolveTargetedCall wrapper every handler that
 // responds immediately (no deferred interaction) uses: it responds with an
-// ephemeral error itself and returns ok=false on failure or self-targeting.
-func callerAndTarget(s *discordgo.Session, i *discordgo.InteractionCreate) (caller, target int64, ok bool) {
-	caller, target, failure, ok := resolveCallerAndTarget(s, i)
+// ephemeral error itself and returns ok=false on failure.
+func callerAndTargets(s *discordgo.Session, i *discordgo.InteractionCreate) (call targetedCall, ok bool) {
+	call, failure, ok := resolveTargetedCall(s, i)
 	if !ok {
 		respondEphemeral(s, i, failure)
 	}
-	return caller, target, ok
+	return call, ok
+}
+
+// reply runs action for each target and joins the skipped-target lines and
+// every action result into one reply.
+func (c targetedCall) reply(action func(target int64) string) string {
+	lines := append([]string(nil), c.skipped...)
+	for _, target := range c.targets {
+		lines = append(lines, action(target))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// userOptionName is the slash-command option name for the nth user slot
+// (1-based): "user", "user2", "user3", ...
+func userOptionName(n int) string {
+	if n == 1 {
+		return userOptionBaseName
+	}
+	return userOptionBaseName + strconv.Itoa(n)
 }
 
 func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
@@ -93,9 +149,9 @@ func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message strin
 // placeholder, buying up to 15 minutes to do slow work (multiple Discord
 // REST calls, DMs) that would otherwise blow the 3-second ACK deadline and
 // surface as Discord's "The application did not respond." Every response
-// after this must go through editDeferred or followupThenClearPlaceholder
-// instead of respond/respondEphemeral/respondPublic, since the initial
-// response slot is now spent.
+// after this must go through editDeferred instead of
+// respond/respondEphemeral/respondPublic, since the initial response slot
+// is now spent.
 func deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -113,25 +169,23 @@ func deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) error 
 // handler whose every response is ephemeral: a deferred response's own
 // visibility is fixed at the ACK and can't be changed by editing it.
 func editDeferred(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
-	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &message}); err != nil {
+	edit := &discordgo.WebhookEdit{Content: &message, AllowedMentions: &discordgo.MessageAllowedMentions{}}
+	if _, err := s.InteractionResponseEdit(i.Interaction, edit); err != nil {
 		logger.Error("edit deferred interaction response", "interaction", i.ID, "error", err)
 	}
 }
 
-// followupThenClearPlaceholder posts the real response as a followup
-// message carrying its own visibility (flags), then deletes the
-// deferEphemeral placeholder so it doesn't linger as a stray "thinking..."
-// bubble. Used by a handler whose outcome decides public vs ephemeral,
-// where editDeferred can't apply since a followup message, unlike the
-// deferred response, can set its own flags.
-func followupThenClearPlaceholder(s *discordgo.Session, i *discordgo.InteractionCreate, message string, flags discordgo.MessageFlags) {
-	if _, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Content: message,
-		Flags:   flags,
-	}); err != nil {
-		logger.Error("send followup interaction response", "interaction", i.ID, "error", err)
+// userInVoiceChannel reports whether userID is currently connected to
+// channelID according to the cached guild voice states.
+func userInVoiceChannel(s *discordgo.Session, guildID, channelID, userID string) (bool, error) {
+	guild, err := s.State.Guild(guildID)
+	if err != nil {
+		return false, err
 	}
-	if err := s.InteractionResponseDelete(i.Interaction); err != nil {
-		logger.Error("delete deferred interaction placeholder", "interaction", i.ID, "error", err)
+	for _, vs := range guild.VoiceStates {
+		if vs.UserID == userID && vs.ChannelID == channelID {
+			return true, nil
+		}
 	}
+	return false, nil
 }

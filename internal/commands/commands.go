@@ -13,6 +13,9 @@ import (
 	"xlparties/internal/store"
 )
 
+// maxTargets is how many users a multi-target command accepts per call.
+const maxTargets = 5
+
 var manageGuildPermission = int64(discordgo.PermissionManageGuild)
 
 // limitOptionMin/limitOptionMax mirror internal/party's minUserLimit/
@@ -27,32 +30,32 @@ var specs = []*discordgo.ApplicationCommand{
 	{
 		Name:        "user_friend",
 		Description: "Add a user as a friend, granting them default access to your party",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as a friend")},
+		Options:     userOptions("The user to add as a friend"),
 	},
 	{
 		Name:        "user_unfriend",
 		Description: "Remove a user as a friend",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as a friend")},
+		Options:     userOptions("The user to remove as a friend"),
 	},
 	{
 		Name:        "user_block",
 		Description: "Add a user as an enemy, blocking them from your party by default",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as an enemy")},
+		Options:     userOptions("The user to add as an enemy"),
 	},
 	{
 		Name:        "user_unblock",
 		Description: "Remove a user as an enemy",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as an enemy")},
+		Options:     userOptions("The user to remove as an enemy"),
 	},
 	{
 		Name:        "user_favorite",
 		Description: "Add a user as a bestie, granting them default access to your besties-only party",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to add as a bestie")},
+		Options:     userOptions("The user to add as a bestie"),
 	},
 	{
 		Name:        "user_unfavorite",
 		Description: "Remove a user as a bestie (they remain a friend)",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to remove as a bestie")},
+		Options:     userOptions("The user to remove as a bestie"),
 	},
 	{
 		Name:        "user_list",
@@ -61,27 +64,27 @@ var specs = []*discordgo.ApplicationCommand{
 	{
 		Name:        "party_allow",
 		Description: "Allow a user into your current party, overriding any default",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to allow")},
+		Options:     userOptions("The user to allow"),
 	},
 	{
 		Name:        "party_block",
 		Description: "Block a user from your current party, overriding any default",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to block")},
+		Options:     userOptions("The user to block"),
 	},
 	{
 		Name:        "party_kick",
 		Description: "Kick a user from your current party voice channel",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to kick")},
+		Options:     userOptions("The user to kick"),
 	},
 	{
 		Name:        "party_ban",
 		Description: "Ban a user from your current party (denies access and kicks them if present)",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to ban")},
+		Options:     userOptions("The user to ban"),
 	},
 	{
 		Name:        "party_invite",
 		Description: "Invite a user to your current party; access lasts only while they stay connected",
-		Options:     []*discordgo.ApplicationCommandOption{userOption("The user to invite")},
+		Options:     userOptions("The user to invite"),
 	},
 	{
 		Name:        "party_create",
@@ -204,32 +207,54 @@ func accessModeChoices() []*discordgo.ApplicationCommandOptionChoice {
 	return choices
 }
 
-func userOption(description string) *discordgo.ApplicationCommandOption {
-	return &discordgo.ApplicationCommandOption{
-		Type:        discordgo.ApplicationCommandOptionUser,
-		Name:        "user",
-		Description: description,
-		Required:    true,
+// userOptions builds the user slots every multi-target command takes: the
+// first is required, the rest optional.
+func userOptions(description string) []*discordgo.ApplicationCommandOption {
+	options := make([]*discordgo.ApplicationCommandOption, 0, maxTargets)
+	for n := 1; n <= maxTargets; n++ {
+		options = append(options, &discordgo.ApplicationCommandOption{
+			Type:        discordgo.ApplicationCommandOptionUser,
+			Name:        userOptionName(n),
+			Description: description,
+			Required:    n == 1,
+		})
+	}
+	return options
+}
+
+type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager)
+
+// storeOnly adapts a handler that needs no party manager to handlerFunc.
+func storeOnly(h func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)) handlerFunc {
+	return func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, _ *party.Manager) {
+		h(s, i, st)
 	}
 }
 
-type handlerFunc func(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store)
-
 var handlers = map[string]handlerFunc{
-	"user_list":    handleUserList,
-	"party_kick":   handlePartyKick,
-	"party_info":   handlePartyInfo,
-	"party_preset": handlePartyPreset,
-	"configure":    handleConfigure,
-	"help":         handleHelp,
+	"user_friend":     handleUserFriend,
+	"user_unfriend":   handleUserUnfriend,
+	"user_block":      handleUserBlock,
+	"user_unblock":    handleUserUnblock,
+	"user_favorite":   handleUserFavorite,
+	"user_unfavorite": handleUserUnfavorite,
+	"user_list":       storeOnly(handleUserList),
+	"party_create":    handlePartyCreate,
+	"party_mode":      handlePartyMode,
+	"party_limit":     handlePartyLimit,
+	"party_invite":    handlePartyInvite,
+	"party_allow":     handlePartyAllow,
+	"party_block":     handlePartyBlock,
+	"party_kick":      handlePartyKick,
+	"party_ban":       handlePartyBan,
+	"party_info":      storeOnly(handlePartyInfo),
+	"party_preset":    storeOnly(handlePartyPreset),
+	"configure":       storeOnly(handleConfigure),
+	"help":            storeOnly(handleHelp),
 }
 
 // Register creates every command guild-scoped and wires interaction routing.
 // Returns the created commands so the caller can hold onto them if needed.
-// partyManager is only needed by commands that touch live channel state or
-// timers, which is why it isn't threaded through the shared handlerFunc
-// signature the way *store.Store is - those commands are routed via the
-// explicit branches in route() instead.
 func Register(s *discordgo.Session, guildID string, st *store.Store, partyManager *party.Manager) ([]*discordgo.ApplicationCommand, error) {
 	s.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		route(s, i, st, partyManager)
@@ -247,64 +272,12 @@ func route(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store
 	case discordgo.InteractionApplicationCommand:
 		name := i.ApplicationCommandData().Name
 		logger.Info("command invoked", "command", name, "caller", i.Member.User.ID)
-		if name == "user_friend" {
-			handleUserFriend(s, i, st, partyManager)
-			return
-		}
-		if name == "user_unfriend" {
-			handleUserUnfriend(s, i, st, partyManager)
-			return
-		}
-		if name == "user_block" {
-			handleUserBlock(s, i, st, partyManager)
-			return
-		}
-		if name == "user_unblock" {
-			handleUserUnblock(s, i, st, partyManager)
-			return
-		}
-		if name == "user_favorite" {
-			handleUserFavorite(s, i, st, partyManager)
-			return
-		}
-		if name == "user_unfavorite" {
-			handleUserUnfavorite(s, i, st, partyManager)
-			return
-		}
-		if name == "party_create" {
-			handlePartyCreate(s, i, st, partyManager)
-			return
-		}
-		if name == "party_mode" {
-			handlePartyMode(s, i, st, partyManager)
-			return
-		}
-		if name == "party_limit" {
-			handlePartyLimit(s, i, st, partyManager)
-			return
-		}
-		if name == "party_invite" {
-			handlePartyInvite(s, i, st, partyManager)
-			return
-		}
-		if name == "party_allow" {
-			handlePartyAllow(s, i, st, partyManager)
-			return
-		}
-		if name == "party_block" {
-			handlePartyBlock(s, i, st, partyManager)
-			return
-		}
-		if name == "party_ban" {
-			handlePartyBan(s, i, st, partyManager)
-			return
-		}
 		handler, ok := handlers[name]
 		if !ok {
 			logger.Warn("unknown command interaction", "command", name)
 			return
 		}
-		handler(s, i, st)
+		handler(s, i, st, partyManager)
 	case discordgo.InteractionMessageComponent:
 		customID := i.MessageComponentData().CustomID
 		if strings.HasPrefix(customID, partyModeComponentPrefix) {

@@ -156,11 +156,11 @@ func (m *Manager) CreateParty(ownerID int64, modeOverride string, limitOverride 
 	if !hasPreset {
 		salutation += "\n\n" + messages.PartyPresetTip
 	}
-	if _, err := m.session.ChannelMessageSend(channel.ID, salutation); err != nil {
+	if err := m.postNotice(channel.ID, salutation); err != nil {
 		logger.Error("party creation: post salutations", "channel", newChannelID, "error", err)
 	}
 	if warning != "" {
-		if _, err := m.session.ChannelMessageSend(channel.ID, warning); err != nil {
+		if err := m.postNotice(channel.ID, warning); err != nil {
 			logger.Error("party creation: post auto-allow warning", "channel", newChannelID, "error", err)
 		}
 	}

@@ -79,7 +79,7 @@ func (m *Manager) runHandoff(channelID, absentOwnerID int64) {
 		logger.Error("handoff: rewrite overwrites", "channel", channelID, "error", err)
 		return
 	}
-	if _, err := m.session.ChannelMessageSend(channelIDStr, fmt.Sprintf(messages.NewOwner, newOwnerID)); err != nil {
+	if err := m.postNotice(channelIDStr, fmt.Sprintf(messages.NewOwner, newOwnerID)); err != nil {
 		logger.Error("handoff: post notice", "channel", channelID, "error", err)
 	}
 

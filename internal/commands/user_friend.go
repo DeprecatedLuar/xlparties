@@ -12,40 +12,30 @@ import (
 )
 
 func handleUserFriend(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
-	caller, target, ok := callerAndTarget(s, i)
-	if !ok {
-		return
-	}
+	runUserEdit(s, i, pm, "user_friend", func(caller, target int64) string {
+		alreadyFriend, err := st.IsFriend(caller, target)
+		if err != nil {
+			logger.Error("user_friend", "error", err)
+			return messages.FailedAddFriend
+		}
+		if alreadyFriend {
+			return fmt.Sprintf(messages.AlreadyFriend, target)
+		}
 
-	alreadyFriend, err := st.IsFriend(caller, target)
-	if err != nil {
-		logger.Error("user_friend", "error", err)
-		respondEphemeral(s, i, messages.FailedAddFriend)
-		return
-	}
-	if alreadyFriend {
-		respondEphemeral(s, i, fmt.Sprintf(messages.AlreadyFriend, target))
-		return
-	}
+		if err := addFriend(s, i.GuildID, st, caller, target); err != nil {
+			logger.Error("user_friend", "error", err)
+			return messages.FailedAddFriend
+		}
 
-	if err := addFriend(s, i.GuildID, st, caller, target); err != nil {
-		logger.Error("user_friend", "error", err)
-		respondEphemeral(s, i, messages.FailedAddFriend)
-		return
-	}
-	if err := pm.RewriteAffectedChannels(caller); err != nil {
-		logger.Error("user_friend: rewrite affected channels", "caller", caller, "error", err)
-	}
-
-	isBlocked, err := st.IsBlocked(caller, target)
-	if err != nil {
-		logger.Error("user_friend: check block status", "error", err)
-	}
-	if isBlocked {
-		respondEphemeral(s, i, fmt.Sprintf(messages.FriendAddedStillBlocked, target))
-	} else {
-		respondEphemeral(s, i, fmt.Sprintf(messages.FriendAdded, target))
-	}
+		isBlocked, err := st.IsBlocked(caller, target)
+		if err != nil {
+			logger.Error("user_friend: check block status", "error", err)
+		}
+		if isBlocked {
+			return fmt.Sprintf(messages.FriendAddedStillBlocked, target)
+		}
+		return fmt.Sprintf(messages.FriendAdded, target)
+	})
 }
 
 // addFriend writes the friend edge and best-effort DMs target that caller

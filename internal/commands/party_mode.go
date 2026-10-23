@@ -95,21 +95,21 @@ func applyAccessMode(s *discordgo.Session, i *discordgo.InteractionCreate, pm *p
 func ownedPartyChannel(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store) (channelID int64, ok bool) {
 	caller, err := callerID(i)
 	if err != nil {
-		logger.Error("party_mode: resolve caller id", "error", err)
+		logger.Error("owned party channel: resolve caller id", "error", err)
 		respondEphemeral(s, i, messages.FailedResolveCaller)
 		return 0, false
 	}
 
 	channelID, err = strconv.ParseInt(i.ChannelID, 10, 64)
 	if err != nil {
-		logger.Error("party_mode: parse channel id", "error", err)
+		logger.Error("owned party channel: parse channel id", "error", err)
 		respondEphemeral(s, i, messages.FailedResolveChannel)
 		return 0, false
 	}
 
 	activeParty, found, err := st.PartyByChannel(channelID)
 	if err != nil {
-		logger.Error("party_mode: lookup party", "error", err)
+		logger.Error("owned party channel: lookup party", "error", err)
 		respondEphemeral(s, i, messages.FailedLookupParty)
 		return 0, false
 	}

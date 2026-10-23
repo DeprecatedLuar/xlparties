@@ -5,7 +5,7 @@ package messages
 
 import "xlparties/internal/store"
 
-// Shared across command handlers via callerAndTarget.
+// Shared across command handlers via callerAndTargets.
 const (
 	FailedResolveCaller = "failed to resolve your user id"
 	FailedResolveTarget = "failed to resolve target user id"

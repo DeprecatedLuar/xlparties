@@ -12,17 +12,11 @@ import (
 )
 
 func handleUserUnblock(s *discordgo.Session, i *discordgo.InteractionCreate, st *store.Store, pm *party.Manager) {
-	caller, target, ok := callerAndTarget(s, i)
-	if !ok {
-		return
-	}
-	if err := st.RemoveBlock(caller, target); err != nil {
-		logger.Error("user_unblock", "error", err)
-		respondEphemeral(s, i, messages.FailedRemoveEnemy)
-		return
-	}
-	if err := pm.RewriteAffectedChannels(caller); err != nil {
-		logger.Error("user_unblock: rewrite affected channels", "caller", caller, "error", err)
-	}
-	respondEphemeral(s, i, fmt.Sprintf(messages.EnemyRemoved, target))
+	runUserEdit(s, i, pm, "user_unblock", func(caller, target int64) string {
+		if err := st.RemoveBlock(caller, target); err != nil {
+			logger.Error("user_unblock", "error", err)
+			return messages.FailedRemoveEnemy
+		}
+		return fmt.Sprintf(messages.EnemyRemoved, target)
+	})
 }
